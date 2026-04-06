@@ -1,0 +1,8 @@
+{{- if .Params.htmltrust }}
+{{- if .Params.htmltrust.sign }}
+<meta name="htmltrust:sign" content="true">
+{{- with .Params.htmltrust.claims }}
+<meta name="htmltrust:claims" content='{{ jsonify . }}'>
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,21 @@
+{{- if and .Params.htmltrust .Params.htmltrust.sign -}}
+{{- $plain := .Content | plainify -}}
+{{- $canonical := $plain | replaceRE `\s+` " " | strings.TrimSpace -}}
+{{- $hash := printf "sha256:%s" (sha256 $canonical) -}}
+<signed-section content-hash="{{ $hash }}" style="display: block;">
+  {{- with .Params.author | default .Site.Params.author }}
+  <meta name="author" content="{{ . }}">
+  {{- end }}
+  {{- if not .Date.IsZero }}
+  <meta name="signed-at" content="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}">
+  {{- end }}
+  {{- with .Params.htmltrust.claims }}
+  {{- range $key, $value := . }}
+  <meta name="claim:{{ $key }}" content="{{ $value }}">
+  {{- end }}
+  {{- end }}
+  {{ .Content }}
+</signed-section>
+{{- else -}}
+{{ .Content }}
+{{- end -}}
