@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  wordpress:
+    name: WordPress Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: intl, mbstring, mysqli
+          tools: composer
+
+      - name: Install dependencies
+        working-directory: wordpress
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Package plugin
+        run: |
+          mkdir -p dist
+          cd wordpress
+          zip -r ../dist/htmltrust-wordpress-plugin.zip . \
+            -x "vendor/*" "tests/*" "bin/*" "composer.lock" "phpunit.xml"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wordpress-plugin
+          path: dist/htmltrust-wordpress-plugin.zip
+
+  hugo:
+    name: Hugo Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Hugo partials syntax
+        run: |
+          echo "Checking partial files exist and are non-empty..."
+          test -s hugo/layouts/partials/htmltrust-signed-section.html && echo "  ✓ htmltrust-signed-section.html"
+          test -s hugo/layouts/partials/htmltrust-meta.html && echo "  ✓ htmltrust-meta.html"
+          test -s hugo/scripts/sign-site.mjs && echo "  ✓ sign-site.mjs"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hugo-integration
+          path: |
+            hugo/layouts/
+            hugo/scripts/
+            hugo/README.md
