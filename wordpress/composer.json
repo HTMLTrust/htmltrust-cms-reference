@@ -9,8 +9,15 @@
       "email": "jason@jason-grey.com"
     }
   ],
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/HTMLTrust/htmltrust-canonicalization"
+    }
+  ],
   "require": {
-    "php": ">=7.0"
+    "php": ">=7.0",
+    "htmltrust/canonicalization": "dev-main"
   },
   "require-dev": {
     "phpunit/phpunit": "^9.5",
