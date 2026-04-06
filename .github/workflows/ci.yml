@@ -22,12 +22,14 @@ jobs:
           tools: composer
 
       - name: Configure private dep access
-        run: git config --global url."https://x-access-token:${{ secrets.HTMLTRUST_PKG_TOKEN }}@github.com/".insteadOf "https://github.com/"
+        env:
+          TOKEN: ${{ secrets.HTMLTRUST_PKG_TOKEN }}
+        run: |
+          git config --global url."https://${TOKEN}@github.com/".insteadOf "https://github.com/"
+          composer config --global github-oauth.github.com "${TOKEN}"
 
       - name: Install dependencies
         working-directory: wordpress
-        env:
-          COMPOSER_AUTH: '{"github-oauth": {"github.com": "${{ secrets.HTMLTRUST_PKG_TOKEN }}"}}'
         run: composer install --no-interaction --prefer-dist
 
       - name: Package plugin
