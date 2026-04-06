@@ -25,7 +25,7 @@ jobs:
         env:
           TOKEN: ${{ secrets.HTMLTRUST_PKG_TOKEN }}
         run: |
-          git config --global url."https://${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
           composer config --global github-oauth.github.com "${TOKEN}"
 
       - name: Install dependencies
