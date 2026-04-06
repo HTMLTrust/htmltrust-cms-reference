@@ -9,6 +9,8 @@
  * @subpackage Content_Signing/includes
  */
 
+use HTMLTrust\Canonicalization\Canonicalize;
+
 class ContentSigning_Signing_Service {
 
     /**
@@ -395,13 +397,8 @@ class ContentSigning_Signing_Service {
         // Strip HTML tags
         $content = wp_strip_all_tags($content);
 
-        // Normalize whitespace
-        $content = preg_replace('/\s+/', ' ', $content);
-
-        // Trim whitespace
-        $content = trim($content);
-
-        return $content;
+        // Apply canonical text normalization
+        return Canonicalize::normalize($content);
     }
 
     /**
