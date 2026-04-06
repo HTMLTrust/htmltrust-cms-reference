@@ -2,6 +2,7 @@
   "name": "HTMLTrust CMS Reference",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/devcontainers/features/node:1": {
       "version": "22"
     },
@@ -17,7 +18,7 @@
       "version": "1.23"
     }
   },
-  "postCreateCommand": "cd wordpress && composer install --no-interaction 2>/dev/null; echo 'Ready'",
+  "postCreateCommand": "cd wordpress && composer install --ignore-platform-req=ext-intl --no-interaction 2>/dev/null; echo 'Ready'",
   "customizations": {
     "vscode": {
       "extensions": [

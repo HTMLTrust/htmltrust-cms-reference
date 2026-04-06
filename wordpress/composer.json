@@ -12,7 +12,7 @@
   "repositories": [
     {
       "type": "vcs",
-      "url": "https://github.com/HTMLTrust/htmltrust-canonicalization"
+      "url": "https://github.com/HTMLTrust/htmltrust-canonicalization.git"
     }
   ],
   "require": {
