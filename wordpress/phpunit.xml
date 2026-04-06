@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    bootstrap="tests/bootstrap.php"
+    backupGlobals="false"
+    colors="true"
+    convertErrorsToExceptions="true"
+    convertNoticesToExceptions="true"
+    convertWarningsToExceptions="true"
+    verbose="true"
+    >
+    <testsuites>
+        <testsuite name="Content Signing Test Suite">
+            <directory suffix=".php">./tests/</directory>
+        </testsuite>
+    </testsuites>
+    <filter>
+        <whitelist>
+            <directory suffix=".php">./includes</directory>
+            <directory suffix=".php">./admin</directory>
+            <directory suffix=".php">./public</directory>
+            <exclude>
+                <directory suffix=".php">./vendor</directory>
+                <directory suffix=".php">./tests</directory>
+            </exclude>
+        </whitelist>
+    </filter>
+    <php>
+        <env name="WP_TESTS_DIR" value="./tests/wordpress-tests-lib" />
+        <env name="WP_CORE_DIR" value="./tests/wordpress" />
+    </php>
+</phpunit>

@@ -1,0 +1,100 @@
+/**
+ * CSS for the post meta box functionality of the plugin.
+ *
+ * @package    Content_Signing
+ * @subpackage Content_Signing/admin/css
+ */
+
+.content-signing-meta-box .notice {
+    margin: 5px 0 10px;
+    padding: 5px 10px;
+    background-color: #f8f8f8;
+    border-left: 4px solid #ffb900;
+}
+
+.content-signing-meta-box textarea {
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.content-signing-signatures {
+    margin-top: 15px;
+    border-top: 1px solid #eee;
+    padding-top: 10px;
+}
+
+.content-signing-signatures h4 {
+    margin: 0 0 10px;
+}
+
+.content-signing-signatures ul {
+    margin: 0;
+    padding: 0;
+}
+
+.content-signing-signatures li {
+    margin: 0 0 10px;
+    padding: 10px;
+    background-color: #f8f8f8;
+    border-left: 4px solid #ccc;
+}
+
+.content-signing-signatures li.signature-status-signed {
+    border-left-color: #46b450;
+}
+
+.content-signing-signatures li.signature-status-pending {
+    border-left-color: #ffb900;
+}
+
+.content-signing-signatures li.signature-status-error {
+    border-left-color: #dc3232;
+}
+
+.content-signing-signatures .signature-status {
+    font-weight: bold;
+}
+
+.content-signing-signatures .signature-status-signed .signature-status {
+    color: #46b450;
+}
+
+.content-signing-signatures .signature-status-pending .signature-status {
+    color: #ffb900;
+}
+
+.content-signing-signatures .signature-status-error .signature-status {
+    color: #dc3232;
+}
+
+.content-signing-signatures .signature-error {
+    margin-top: 5px;
+    color: #dc3232;
+    font-size: 12px;
+}
+
+.content-signing-meta-box .spinner {
+    visibility: hidden;
+    display: inline-block;
+    float: none;
+    margin: 0 0 0 5px;
+}
+
+.content-signing-meta-box .spinner.is-active {
+    visibility: visible;
+}
+
+.content-signing-meta-box .verify-result {
+    margin-top: 5px;
+    padding: 5px;
+    background-color: #f8f8f8;
+    border-left: 4px solid #00a0d2;
+}
+
+.content-signing-meta-box .verify-result.valid {
+    border-left-color: #46b450;
+}
+
+.content-signing-meta-box .verify-result.invalid {
+    border-left-color: #dc3232;
+}
