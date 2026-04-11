@@ -96,39 +96,95 @@ Both forms are valid. Verifying clients should handle either case.
 
 Before hashing, content MUST be canonicalized:
 
-1. Strip all HTML tags (extract text content only)
-2. Collapse all whitespace sequences to a single space
-3. Trim leading and trailing whitespace
-4. Encode as UTF-8
+1. Parse the HTML and extract text nodes in document order
+2. Strip all HTML markup (tags and attributes); only the text content contributes to the hash
+3. Collapse all whitespace sequences to a single space
+4. Trim leading and trailing whitespace
+5. Apply the text normalization defined by the `@htmltrust/canonicalization` library (NFKC, quote normalization, dash normalization, invisible character stripping)
+6. Encode as UTF-8
 
-The resulting string is hashed with SHA-256 and prefixed: `sha256:<hex_digest>`.
+The resulting string is hashed with SHA-256 and expressed as `sha256:<base64_digest>`, where `<base64_digest>` is the unpadded Base64 encoding of the 32-byte digest.
+
+### Text-only scope
+
+The canonicalization hashes **text content only**, not the HTML markup or attributes that surround it. This means an adversary with possession of signed text MAY:
+
+- Rewrap the text in misleading block elements (e.g., change an `<h1>` to a `<del>` strikethrough)
+- Alter link destinations (`href` values) on `<a>` elements surrounding the signed text
+- Introduce, remove, or swap images and other media around the signed text
+
+These are **semantic integrity concerns**, not cryptographic ones. HTMLTrust addresses them through a layered design:
+
+1. **Domain binding** (see Signature Data Format below): signatures bind the content to a specific publication origin. A reader or crawler encountering signed content at an unexpected origin is alerted by signature check failure.
+2. **Research and reputation path**: crawlers and researchers can trace signed content back to its canonical publication origin through the trust directory, flag imposter copies, and mark manipulated surrounding context. Over time the directory's reputation and reports surface altered copies to any consumer whose trust policy considers them.
+
+The layered design keeps cryptographic verification simple and portable across language implementations, while delegating semantic-integrity detection to the research ecosystem where it can evolve without breaking existing signatures.
+
+**Open design question**: a future revision MAY extend the hash to cover particularly meaningful attributes, especially `href` on `<a>` elements (since link-swap within the original publication origin is a phishing vector that domain-binding and research cannot address alone). Feedback on which attributes to cover is explicitly welcome.
 
 ## Signature Data Format
 
-The signature binds three values, concatenated with `:` separators:
+The signature binds four values, concatenated with `:` separators:
 
 ```
-{contentHash}:{domain}:{authorId}
+{content-hash}:{claims-hash}:{domain}:{signed-at}
 ```
+
+- `content-hash` — hash of the canonicalized text content (see above)
+- `claims-hash` — SHA-256 hash of the canonical serialization of all inner `<meta>` claim elements, ordered lexically by name (ensures tamper-evident claim metadata)
+- `domain` — the origin where the content is authoritatively published (anti-theft binding)
+- `signed-at` — the ISO-8601 timestamp from the `<meta name="signed-at">` element
 
 For example:
 ```
-sha256:a591a6d40bf420404a...146e:example.com:123e4567-e89b-12d3-a456-426614174000
+sha256:RAyBCvKT...:sha256:eFgHiJkL...:example.com:2025-05-01T10:30:00Z
 ```
 
-This string is signed with the author's private key using the specified algorithm.
+The author's identity is **not** included in the binding because it is implicit in the keyid resolution step: any attempt to claim a signature under a different identity would resolve to a different public key and fail verification. This string is signed with the author's private key using the algorithm declared in the `algorithm` attribute.
+
+**Hash encoding (open feedback)**: hashes are encoded as unpadded Base64, which is shorter than hexadecimal by roughly one-third. Community feedback on alternative encodings (hex, Base32) for ecosystem alignment is welcome.
 
 ## Verification Flow
 
-A verifying client (browser extension, crawler, etc.) performs these steps:
+HTMLTrust separates verification into two distinct layers, per the specification:
+
+### Layer 1: Cryptographic verification (local, deterministic)
+
+A verifying client (browser extension, crawler, library) performs these steps **locally**, with no network calls beyond the key resolution step:
 
 1. **Discover** `<signed-section>` elements in the page DOM
 2. **Read** the `signature`, `keyid`, `algorithm`, and `content-hash` attributes
-3. **Fetch** the author's public key from the URL in `keyid`
-4. **Canonicalize** the adjacent or wrapped content and compute its SHA-256 hash
-5. **Compare** the computed hash with `content-hash` (integrity check)
-6. **Verify** the cryptographic signature against the public key (authenticity check)
-7. **Optionally** query a trust directory for the author's reputation and endorsements
+3. **Resolve** the `keyid` to a public key. The `keyid` may be a DID (e.g., `did:web:author.example`), a direct URL to a public key JSON document, or a trust directory reference. Implementations MUST accept multiple resolution methods.
+4. **Canonicalize** the inner text content per the rules above and compute its hash
+5. **Compare** the computed hash with the `content-hash` attribute (content integrity check)
+6. **Compute** the `claims-hash` from the canonical serialization of inner `<meta>` claim elements
+7. **Construct** the binding string `{content-hash}:{claims-hash}:{domain}:{signed-at}`
+8. **Verify** the cryptographic signature over the binding string using the resolved public key and the declared `algorithm`
+
+This layer produces a deterministic yes/no result: either the signature is cryptographically valid or it is not. No server or directory is required for this step beyond whatever key resolution demands.
+
+### Layer 2: Trust decision (client policy)
+
+Given a cryptographically valid signature, the client then applies the **user's trust policy** to decide how to present the content. This layer is entirely client-side and may draw on:
+
+- A personal list of trusted keyids (option A)
+- Trusted origin domains (option B)
+- Endorsements from designated third parties (fetched from trust directories and independently verified)
+- Reputation scores from one or more user-selected trust directories
+- Local or cached revocation state
+- Any combination of the above, weighted as the user configures
+
+The output is a trust score or ranking, **not** a binary verdict. User interfaces SHOULD present the outcome as a graduated signal (for example a red/yellow/green score) with hover or detail views exposing which inputs contributed to the final score.
+
+### Optional directory queries
+
+In addition to the two layers above, a client MAY query one or more trust directories for:
+
+- Author reputation (signer-level trust, ongoing curatorial opinion)
+- Content endorsements (point-in-time attestations from third parties)
+- Key revocation and reports
+
+These queries enrich the trust decision but are never required for signature verification itself.
 
 ## Multiple Signatures
 
