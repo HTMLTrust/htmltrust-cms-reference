@@ -73,7 +73,12 @@ class ContentSigning_Admin_AuthorProfiles {
                 // Show the authors list
                 $this->render_authors_list($authors);
             }
-/**
+            ?>
+        </div>
+        <?php
+    }
+
+    /**
      * Handle form submissions.
      *
      * @since    1.0.0
@@ -424,11 +429,8 @@ class ContentSigning_Admin_AuthorProfiles {
             );
         }
     }
-            ?>
-        </div>
-        <?php
-    }
-/**
+
+    /**
      * Show admin notices.
      *
      * @since    1.0.0
