@@ -108,6 +108,15 @@ class ContentSigning_Plugin {
     }
 
     /**
+     * Track whether components have been initialized to avoid double-init.
+     *
+     * @since    1.0.1
+     * @access   private
+     * @var      bool
+     */
+    private $initialized = false;
+
+    /**
      * Load the required dependencies for this plugin.
      *
      * @since    1.0.0
@@ -144,57 +153,116 @@ class ContentSigning_Plugin {
     /**
      * Run the plugin.
      *
+     * Defers all DB-touching component initialization to the WordPress 'init'
+     * action. This is important because the plugin file is loaded on every
+     * request -- including the activation request -- and at plugin-load time
+     * our custom tables (wp_content_signing_servers et al.) may not exist yet.
+     *
+     * Historical bug: init_components() previously ran synchronously here and
+     * called $db->get_default_server(), which executes a SELECT against
+     * wp_content_signing_servers. On a freshly-installed site, the activator
+     * has not yet created that table when this code path is reached, causing
+     * a fatal "table doesn't exist" error and breaking `wp plugin activate`.
+     *
+     * Deferring to 'init' means components are built only after WordPress is
+     * fully bootstrapped and after register_activation_hook has had a chance
+     * to run dbDelta. Hook *registration* (which is metadata-only and does
+     * not query the DB) happens immediately so that we don't miss the early
+     * action ordering that some hooks depend on -- but the registration
+     * itself is just attaching a closure to 'init', not building anything.
+     *
      * @since    1.0.0
      * @return   void
      */
     public function run() {
-        // Initialize components
-        $this->init_components();
-        
-        // Register hooks
+        // Defer real component construction until WP is ready and our tables
+        // are guaranteed to exist (post-activation). Priority 5 so we are
+        // ready before most other 'init' callers, but after WP core init.
+        add_action('init', array($this, 'init_components'), 5);
+    }
+
+    /**
+     * Initialize the plugin components.
+     *
+     * Public so it can be wired as an 'init' action callback. Idempotent:
+     * safe to call multiple times -- subsequent calls are no-ops.
+     *
+     * @since    1.0.0
+     * @return   void
+     */
+    public function init_components() {
+        if ($this->initialized) {
+            return;
+        }
+        $this->initialized = true;
+
+        // Defensive: make sure tables exist before we ever touch them. This
+        // protects against edge cases where the plugin file loads in a
+        // request context that bypassed normal activation (e.g. a manual
+        // 'must-use' install, or a site clone where the activation hook
+        // never fired). Cheap because we gate on a version option.
+        $this->maybe_install_schema();
+
+        // Initialize database (constructor only stores wpdb refs / table names;
+        // does not query).
+        $this->db = new ContentSigning_DB();
+
+        // Initialize scheduler (constructor stores db ref only).
+        $this->scheduler = new ContentSigning_Scheduler($this->db);
+
+        // Get default server -- this DOES query the DB. Now safe because
+        // we are inside 'init' and tables exist.
+        $default_server = $this->db->get_default_server();
+        $api_url = '';
+        $general_api_key = '';
+
+        if ($default_server) {
+            $api_url = $default_server->api_url;
+            $general_api_key = $this->db->decrypt($default_server->api_key_encrypted);
+        }
+
+        // Initialize API client
+        $this->api_client = new ContentSigning_API_Client($api_url, $general_api_key, $this->db);
+
+        // Initialize signing service
+        $this->signing_service = new ContentSigning_Signing_Service($this->db, $this->api_client, $this->scheduler);
+
+        // Initialize admin
+        $this->admin = new ContentSigning_Admin($this->db, $this->api_client);
+
+        // Initialize public
+        $this->public = new ContentSigning_Public($this->db, $this->api_client);
+
+        // Initialize hooks
+        $this->hooks = new ContentSigning_Hooks($this->signing_service, $this->admin);
+
+        // Register the per-component hooks now that components exist.
         $this->hooks->register_hooks();
         $this->scheduler->register_hooks();
         $this->public->register_hooks();
     }
 
     /**
-     * Initialize the plugin components.
+     * Ensure the plugin's schema is present, idempotently.
      *
-     * @since    1.0.0
+     * Gated on the 'content_signing_db_version' option so we only re-run
+     * dbDelta when the bundled version differs from the installed version.
+     * dbDelta itself is idempotent (it diffs and ALTERs to match), so
+     * calling this on every load would be safe but wasteful.
+     *
+     * @since    1.0.1
      * @access   private
      * @return   void
      */
-    private function init_components() {
-        // Initialize database
-        $this->db = new ContentSigning_DB();
-        
-        // Initialize scheduler
-        $this->scheduler = new ContentSigning_Scheduler($this->db);
-        
-        // Get default server
-        $default_server = $this->db->get_default_server();
-        $api_url = '';
-        $general_api_key = '';
-        
-        if ($default_server) {
-            $api_url = $default_server->api_url;
-            $general_api_key = $this->db->decrypt($default_server->api_key_encrypted);
+    private function maybe_install_schema() {
+        $installed = get_option('content_signing_db_version');
+        if ($installed === CONTENT_SIGNING_VERSION) {
+            return;
         }
-        
-        // Initialize API client
-        $this->api_client = new ContentSigning_API_Client($api_url, $general_api_key, $this->db);
-        
-        // Initialize signing service
-        $this->signing_service = new ContentSigning_Signing_Service($this->db, $this->api_client, $this->scheduler);
-        
-        // Initialize admin
-        $this->admin = new ContentSigning_Admin($this->db, $this->api_client);
-        
-        // Initialize public
-        $this->public = new ContentSigning_Public($this->db, $this->api_client);
-        
-        // Initialize hooks
-        $this->hooks = new ContentSigning_Hooks($this->signing_service, $this->admin);
+
+        require_once CONTENT_SIGNING_PLUGIN_DIR . 'includes/class-content-signing-activator.php';
+        ContentSigning_Activator::activate();
+        update_option('content_signing_db_version', CONTENT_SIGNING_VERSION);
     }
 
     /**
