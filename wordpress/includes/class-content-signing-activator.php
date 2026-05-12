@@ -16,11 +16,23 @@ class ContentSigning_Activator {
      *
      * Creates the necessary database tables for the plugin.
      *
+     * Idempotent by construction:
+     *   - create_database_tables() uses dbDelta(), which diffs and ALTERs to
+     *     match the desired schema rather than failing on existing tables.
+     *   - set_default_options() uses add_option(), which is a no-op when the
+     *     option already exists.
+     *
+     * Safe to call repeatedly. Also called lazily from
+     * ContentSigning_Plugin::maybe_install_schema() to recover from edge
+     * cases where the activation hook never fired (manual installs, site
+     * clones, etc.).
+     *
      * @since    1.0.0
      */
     public static function activate() {
         self::create_database_tables();
         self::set_default_options();
+        update_option('content_signing_db_version', CONTENT_SIGNING_VERSION);
     }
 
     /**
