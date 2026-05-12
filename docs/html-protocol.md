@@ -10,18 +10,26 @@ Signed content uses the `<signed-section>` custom HTML element, as defined in th
 
 ### Required Attributes
 
+Per spec §2.1, the wrapper element carries exactly four required attributes:
+
 | Attribute | Description | Example |
 |---|---|---|
-| `signature` | Base64-encoded cryptographic signature of the content hash + domain + author ID | `signature="aBcDeF123..."` |
-| `keyid` | URL where the author's public key can be fetched, or a DID | `keyid="https://api.example.com/authors/123/public-key"` |
-| `algorithm` | Cryptographic algorithm used for the signature | `algorithm="ed25519"` |
-| `content-hash` | Hash of the canonicalized content, prefixed with the algorithm | `content-hash="sha256:abc123def456..."` |
+| `keyid` | Identifies the signer; resolved per the rules in **Identity and Key Resolution** below. May be a DID, a direct URL to a public key document, or a trust-directory reference. | `keyid="did:web:author.example"` |
+| `signature` | Base64-encoded (unpadded) cryptographic signature over the canonical binding string defined in **Signature Data Format** | `signature="aBcDeF123..."` |
+| `content-hash` | Hash of the canonicalized text content, prefixed with the hash algorithm | `content-hash="sha256:abc123def456..."` |
+| `algorithm` | Signature algorithm. Required by the spec; implementations MAY default to `ed25519` when the attribute is omitted, but producers SHOULD always emit it explicitly. | `algorithm="ed25519"` |
+
+### Optional Attributes
+
+There are **no** optional attributes on the `<signed-section>` wrapper itself in this revision. All claim and contextual metadata (author name, signed-at timestamp, license, content type, AI assistance, etc.) belongs in inner `<meta>` elements as documented under **Inner Metadata** below. This keeps the wrapper's attribute surface narrow and easy to validate.
+
+Presentational attributes such as `style` and `class` SHOULD NOT be set inline on `<signed-section>`. Styling is the user agent's responsibility (see the **CSS** section at the bottom of this document); inline presentational attributes mix concerns and are unnecessary for protocol conformance.
 
 ### Supported Algorithms
 
 | Value | Description |
 |---|---|
-| `ed25519` | Ed25519 (recommended) |
+| `ed25519` | Ed25519 (recommended; the default if the `algorithm` attribute is omitted) |
 | `rsa` | RSA with SHA-256 |
 | `ecdsa` | ECDSA with secp256k1 |
 
@@ -92,18 +100,50 @@ Or appear as a **standalone marker** alongside content (e.g., when added by a CM
 
 Both forms are valid. Verifying clients should handle either case.
 
-## Content Canonicalization
+## Identity and Key Resolution
 
-Before hashing, content MUST be canonicalized:
+The `keyid` attribute identifies the signer but the resolution mechanism is deliberately **pluggable** (spec §2.2). Implementations MUST accept multiple resolution methods and SHOULD treat none as canonical or privileged. Three forms are defined:
 
-1. Parse the HTML and extract text nodes in document order
-2. Strip all HTML markup (tags and attributes); only the text content contributes to the hash
-3. Collapse all whitespace sequences to a single space
-4. Trim leading and trailing whitespace
-5. Apply the text normalization defined by the `@htmltrust/canonicalization` library (NFKC, quote normalization, dash normalization, invisible character stripping)
-6. Encode as UTF-8
+| Form | Example | How it resolves |
+|---|---|---|
+| **Decentralized Identifier (DID)** | `did:web:author.example` | The user agent fetches the DID document at the author's origin (`https://author.example/.well-known/did.json` for `did:web`) and extracts the public key. Places no dependency on any third party. |
+| **Direct URL to a public key** | `https://author.example/key.json` | The user agent fetches the URL and parses the response as either a JSON `{ publicKey, algorithm }` object or raw PEM. Simple to host as a static file with no extra tooling. |
+| **Trust directory reference** | `https://directory.example/keys/abc123` | The user agent fetches the URL from a federated trust directory acting as a convenience key registry. Useful for less-technical authors who prefer a sign-up workflow over self-hosted identity publication. |
 
-The resulting string is hashed with SHA-256 and expressed as `sha256:<base64_digest>`, where `<base64_digest>` is the unpadded Base64 encoding of the 32-byte digest.
+**No resolver is privileged by the protocol.** Authors freely choose a resolution mechanism, and verifiers freely choose which methods they accept. Verifiers typically compose the three resolvers as a fallback chain in whatever order suits their threat model. The `keyid` is opaque to the signature protocol itself; only the resolved public key matters for cryptographic verification, and that verification is a local operation in the user agent that never requires contacting a directory.
+
+User agents MAY cache resolved keys (with appropriate freshness and revocation handling) so that signature verification scales to pages with many signed sections without repeated network calls.
+
+## Canonical Content Extraction
+
+The hash that the signature covers is taken from the **text content** of the signed region, after the extraction and normalization process described below (spec §2.1). This is performed in two stages: HTML extraction, then text normalization.
+
+### Stage 1: HTML extraction
+
+Given the inner contents of a `<signed-section>` element:
+
+1. **Strip excluded elements** entirely, including their text content: `<script>`, `<style>`, `<meta>`, `<link>`, `<head>`, `<noscript>`. (`<meta>` is excluded because, inside a signed-section, it carries claim metadata rather than signed content. Claim metadata is hashed separately into the `claims-hash` field.)
+2. **Insert a single space at every block-element boundary** (open and close tags of `<p>`, `<div>`, `<article>`, `<section>`, `<h1>`-`<h6>`, `<li>`, `<ul>`, `<ol>`, `<table>`, `<tr>`, `<td>`, `<th>`, `<header>`, `<footer>`, `<nav>`, `<main>`, `<aside>`, etc.) so that `<p>A</p><p>B</p>` extracts to `A B` and not `AB`. Inline elements (`<em>`, `<strong>`, `<a>`, `<span>`, etc.) do **not** introduce separators.
+3. **Strip all remaining markup** (inline tags and any attributes), preserving only the text content.
+4. **Decode HTML entities** (`&amp;`, `&lt;`, `&gt;`, named entities, numeric `&#nnn;` and `&#xhhhh;` entities).
+5. Pass the resulting string to text normalization.
+
+### Stage 2: Text normalization
+
+The HTMLTrust canonicalization library applies, in order:
+
+1. **Unicode NFKC** normalization (handles ligatures, fullwidth/halfwidth, presentation forms, superscripts, CJK compatibility, Jamo composition).
+2. **Strip invisible/formatting characters** (soft hyphen, ZWSP, BOM, bidi controls, variation selectors, Arabic tatweel, etc.). ZWNJ and ZWJ are deliberately **preserved** because they are semantic in Persian, Indic, and emoji.
+3. **Collapse all Unicode whitespace** to a single ASCII space; collapse runs of spaces.
+4. **Normalize quotation marks**: curly singles → `'`, curly doubles → `"`, guillemets → `"`, CJK corner brackets → `"`.
+5. **Normalize dashes** (en dash, em dash, minus sign, etc.) → ASCII hyphen-minus `-`.
+6. **Normalize ellipsis** `…` → three ASCII periods `...`.
+
+The output is a UTF-8 string. Hashing produces `sha256:<base64>` where `<base64>` is the unpadded Base64 encoding of the 32-byte SHA-256 digest.
+
+**What is NOT covered by the hash.** Only the text content is hashed. HTML markup, element types, attributes (including `href`, `src`, `class`, `style`), and surrounding media are not part of the canonical content. This is a deliberate scoping choice; see **Text-only scope** below for the rationale and how HTMLTrust addresses the resulting semantic gaps through its layered design.
+
+The reference implementation lives in the `@htmltrust/canonicalization` library, with byte-identical bindings for JavaScript, Go, PHP, Python, and Rust.
 
 ### Text-only scope
 
