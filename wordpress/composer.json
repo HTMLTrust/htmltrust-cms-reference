@@ -2,7 +2,7 @@
   "name": "jasongrey/content-signing-wordpress",
   "description": "WordPress plugin that integrates with external content signing services to verify content origin and authenticity",
   "type": "wordpress-plugin",
-  "license": "GPL-2.0-or-later",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
   "authors": [
     {
       "name": "Jason Grey",
