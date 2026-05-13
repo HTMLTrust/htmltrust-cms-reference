@@ -79,7 +79,7 @@ hugo --minify
 node scripts/sign-site.mjs --dir public
 ```
 
-This requires a running [HTMLTrust trust directory server](https://github.com/ArcadeLabsInc/htmltrust-server-reference) and these environment variables:
+This requires a running [HTMLTrust trust directory server](https://github.com/HTMLTrust/htmltrust-server-reference) and these environment variables:
 
 ```sh
 export HTMLTRUST_API_URL=http://localhost:3000

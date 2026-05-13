@@ -2,7 +2,7 @@
 
 Reference CMS plugin for server-side content signing with HTMLTrust. Embeds cryptographic signatures into published content so that browsers and crawlers can verify authorship and integrity.
 
-This is a companion to the [HTMLTrust specification](https://github.com/ArcadeLabsInc/htmltrust-spec).
+This is a companion to the [HTMLTrust specification](https://github.com/HTMLTrust/htmltrust-spec).
 
 ## What It Does
 
@@ -51,7 +51,7 @@ htmltrust-cms-reference/
 
 - WordPress 5.0+
 - PHP 7.0+
-- A running [HTMLTrust trust directory server](https://github.com/ArcadeLabsInc/htmltrust-server-reference)
+- A running [HTMLTrust trust directory server](https://github.com/HTMLTrust/htmltrust-server-reference)
 
 ### Installation
 
@@ -101,10 +101,10 @@ See `docs/html-protocol.md` for the full specification.
 
 | Repository | Description |
 |---|---|
-| [htmltrust-spec](https://github.com/ArcadeLabsInc/htmltrust-spec) | The HTMLTrust specification and paper |
-| [htmltrust-server-reference](https://github.com/ArcadeLabsInc/htmltrust-server-reference) | Reference trust directory API server |
-| [htmltrust-browser-reference](https://github.com/ArcadeLabsInc/htmltrust-browser-reference) | Reference browser extension for signature validation |
-| [htmltrust-website](https://github.com/ArcadeLabsInc/htmltrust-website) | Project website |
+| [htmltrust-spec](https://github.com/HTMLTrust/htmltrust-spec) | The HTMLTrust specification and paper |
+| [htmltrust-server-reference](https://github.com/HTMLTrust/htmltrust-server-reference) | Reference trust directory API server |
+| [htmltrust-browser-reference](https://github.com/HTMLTrust/htmltrust-browser-reference) | Reference browser extension for signature validation |
+| [htmltrust-website](https://github.com/HTMLTrust/htmltrust-website) | Project website |
 
 ## License
 

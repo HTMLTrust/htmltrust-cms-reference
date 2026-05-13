@@ -4,7 +4,7 @@ This document specifies how content publishers embed cryptographic signatures in
 
 ## Overview
 
-Signed content uses the `<signed-section>` custom HTML element, as defined in the [HTMLTrust specification](https://github.com/ArcadeLabsInc/htmltrust-spec). This element wraps or accompanies signed content and carries the cryptographic signature as attributes.
+Signed content uses the `<signed-section>` custom HTML element, as defined in the [HTMLTrust specification](https://github.com/HTMLTrust/htmltrust-spec). This element wraps or accompanies signed content and carries the cryptographic signature as attributes.
 
 ## The `<signed-section>` Element
 
