@@ -4,6 +4,7 @@
  * Plugin URI: https://example.com/content-signing
  * Description: Integrates WordPress with content signing services to verify content origin and authenticity.
  * Version: 1.0.0
+ * Requires PHP: 7.2
  * Author: Jason Grey
  * Author URI: https://jason-grey.com
  * License: GPL-2.0+
@@ -22,6 +23,18 @@ define('CONTENT_SIGNING_VERSION', '1.0.0');
 define('CONTENT_SIGNING_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CONTENT_SIGNING_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('CONTENT_SIGNING_PLUGIN_BASENAME', plugin_basename(__FILE__));
+
+/**
+ * Composer autoloader.
+ *
+ * Supplies HTMLTrust\Canonicalization\Canonicalize, the shared canonicalization
+ * library the signing service uses to derive the bytes it hashes. Without it
+ * the plugin cannot produce a content hash any verifier will reproduce, so the
+ * signing service reports a clear deployment error rather than fatalling.
+ */
+if (file_exists(CONTENT_SIGNING_PLUGIN_DIR . 'vendor/autoload.php')) {
+    require_once CONTENT_SIGNING_PLUGIN_DIR . 'vendor/autoload.php';
+}
 
 /**
  * The code that runs during plugin activation.

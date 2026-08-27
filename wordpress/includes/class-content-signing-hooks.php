@@ -214,22 +214,26 @@ class ContentSigning_Hooks {
      * @return   void
      */
     public function ajax_sign_post() {
-        // Check nonce
-        check_ajax_referer('content_signing_nonce', 'nonce');
-        
-        // Check permissions
-        if (!current_user_can('edit_posts')) {
-            wp_send_json_error(array('message' => 'Permission denied.'));
-            return;
-        }
-        
-        // Get post ID
+        // Get post ID first: the nonce and the capability are both scoped to
+        // this specific post.
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
         if (!$post_id) {
             wp_send_json_error(array('message' => 'Invalid post ID.'));
             return;
         }
-        
+
+        // Check nonce. Post-scoped, so a nonce minted on one post's edit
+        // screen cannot be replayed against another post.
+        check_ajax_referer('content_signing_post_' . $post_id, 'nonce');
+
+        // Check permissions against this post, not the generic edit_posts
+        // capability: edit_posts is true for any Contributor, which would let
+        // them sign posts they do not own.
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(array('message' => 'Permission denied.'));
+            return;
+        }
+
         // Sign the post
         $result = $this->signing_service->sign_post($post_id);
         
@@ -247,24 +251,24 @@ class ContentSigning_Hooks {
      * @return   void
      */
     public function ajax_verify_signature() {
-        // Check nonce
-        check_ajax_referer('content_signing_nonce', 'nonce');
-        
-        // Check permissions
-        if (!current_user_can('edit_posts')) {
-            wp_send_json_error(array('message' => 'Permission denied.'));
-            return;
-        }
-        
         // Get post ID and signature ID
         $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
         $signature_id = isset($_POST['signature_id']) ? intval($_POST['signature_id']) : 0;
-        
+
         if (!$post_id || !$signature_id) {
             wp_send_json_error(array('message' => 'Invalid post ID or signature ID.'));
             return;
         }
-        
+
+        // Check nonce. Post-scoped, as in ajax_sign_post().
+        check_ajax_referer('content_signing_post_' . $post_id, 'nonce');
+
+        // Check permissions against this post rather than edit_posts.
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(array('message' => 'Permission denied.'));
+            return;
+        }
+
         // Verify the signature
         $result = $this->signing_service->verify_post_signature($post_id, $signature_id);
         
@@ -284,13 +288,15 @@ class ContentSigning_Hooks {
     public function ajax_get_claim_types() {
         // Check nonce
         check_ajax_referer('content_signing_nonce', 'nonce');
-        
-        // Check permissions
-        if (!current_user_can('edit_posts')) {
+
+        // Check permissions. This handler reads a server profile and talks to
+        // that server with its stored API key, so it is gated on the same
+        // capability as the plugin's settings screens.
+        if (!current_user_can('manage_options')) {
             wp_send_json_error(array('message' => 'Permission denied.'));
             return;
         }
-        
+
         // Get server ID
         $server_id = isset($_POST['server_id']) ? intval($_POST['server_id']) : 0;
         if (!$server_id) {

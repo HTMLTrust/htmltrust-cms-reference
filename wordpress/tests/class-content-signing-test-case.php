@@ -10,10 +10,13 @@
  */
 class ContentSigning_TestCase extends WP_UnitTestCase {
 
+    /** @var ContentSigning_Plugin */
+    protected $plugin;
+
     /**
      * Set up before each test.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
         
         // Get plugin instance
@@ -23,7 +26,7 @@ class ContentSigning_TestCase extends WP_UnitTestCase {
     /**
      * Tear down after each test.
      */
-    public function tearDown() {
+    public function tearDown(): void {
         parent::tearDown();
     }
 
@@ -37,7 +40,7 @@ class ContentSigning_TestCase extends WP_UnitTestCase {
         $defaults = array(
             'post_title' => 'Test Post',
             'post_content' => 'This is test content for signing.',
-            'post_status' => 'publish',
+            'post_status' => 'draft',
             'post_author' => 1,
             'post_type' => 'post',
         );

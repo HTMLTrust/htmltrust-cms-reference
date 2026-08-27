@@ -20,7 +20,7 @@ class Test_Content_Signing_Scheduler extends ContentSigning_API_Client_TestCase 
     /**
      * Set up before each test.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
         
         // Get scheduler instance
@@ -30,7 +30,7 @@ class Test_Content_Signing_Scheduler extends ContentSigning_API_Client_TestCase 
     /**
      * Tear down after each test.
      */
-    public function tearDown() {
+    public function tearDown(): void {
         // Clear any scheduled events
         $this->clear_scheduled_hooks();
         

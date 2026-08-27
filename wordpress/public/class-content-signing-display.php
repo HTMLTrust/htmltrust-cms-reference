@@ -63,13 +63,16 @@ class ContentSigning_Display {
             return $content;
         }
 
-        // Build the signature HTML
-        $signature_html = $this->get_signature_html($post_id);
+        $primary_signature = $this->get_primary_signature($signatures);
+        if (!$primary_signature) {
+            return $content;
+        }
 
-        // Append the signature HTML to the content
-        $content .= $signature_html;
+        if (stripos($content, '<signed-section') !== false) {
+            return $content . $this->get_signature_html($post_id);
+        }
 
-        return $content;
+        return $this->get_signed_section_html($primary_signature, $content) . $this->get_signature_html($post_id);
     }
 
     /**
@@ -102,16 +105,12 @@ class ContentSigning_Display {
         }
 
         // Get the primary signature (first one with status 'signed')
-        $primary_signature = null;
+        $primary_signature = $this->get_primary_signature($signatures);
         $endorsement_signatures = array();
 
         foreach ($signatures as $signature) {
-            if ($signature->status === 'signed') {
-                if (!$primary_signature) {
-                    $primary_signature = $signature;
-                } else {
-                    $endorsement_signatures[] = $signature;
-                }
+            if ($signature->status === 'signed' && $primary_signature && $signature->signature_id !== $primary_signature->signature_id) {
+                $endorsement_signatures[] = $signature;
             }
         }
 
@@ -166,12 +165,26 @@ class ContentSigning_Display {
 
         $html .= '</div>'; // .content-signing-details
 
-        // Add the signature HTML attributes for verification
-        $html .= $this->get_signature_attributes_html($primary_signature);
-
         $html .= '</div>'; // .content-signing-container
 
         return $html;
+    }
+
+    /**
+     * Get the primary signed signature.
+     *
+     * @since    1.0.0
+     * @param    array $signatures The signatures.
+     * @return   object|null       The primary signature.
+     */
+    private function get_primary_signature($signatures) {
+        foreach ($signatures as $signature) {
+            if ($signature->status === 'signed') {
+                return $signature;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -354,69 +367,205 @@ class ContentSigning_Display {
     }
 
     /**
-     * Get the HTML attributes for the signature container.
+     * Wrap signed post content in a spec-conformant signed-section element.
      *
      * @since    1.0.0
      * @param    object    $signature    The signature object.
-     * @return   string                  The signature attributes HTML.
+     * @param    string    $content      The rendered post content.
+     * @return   string                  The signed section HTML.
      */
-    private function get_signature_attributes_html($signature) {
-        // Get the author's public key
-        $author_public_key = '';
+    private function get_signed_section_html($signature, $content) {
+        $key = $this->get_key_metadata($signature);
+        if ($key['keyid'] === '' || $key['algorithm'] === '') {
+            return $content;
+        }
 
-        // Create an API client for the server
-        $server = $this->db->get_server($signature->server_id);
-        if ($server) {
-            $api_client = new ContentSigning_API_Client(
-                $server->api_url,
-                $this->db->decrypt($server->api_key_encrypted),
-                $this->db
-            );
+        $html = '<signed-section ';
+        $html .= 'signature="' . esc_attr($signature->signature) . '" ';
+        $html .= 'keyid="' . esc_attr($key['keyid']) . '" ';
+        $html .= 'algorithm="' . esc_attr($key['algorithm']) . '" ';
+        $html .= 'content-hash="' . esc_attr($signature->content_hash) . '">';
+        $html .= $this->get_claim_meta_html($signature);
+        $html .= $content;
+        $html .= '</signed-section>';
 
-            // Get the author's public key
-            $result = $api_client->get_author_public_key($signature->signing_author_id);
-            if (!is_wp_error($result) && isset($result['key'])) {
-                $author_public_key = $result['key'];
+        return $html;
+    }
+
+    /**
+     * Get the key identifier and signature algorithm for a signature.
+     *
+     * The `algorithm` attribute has to name the algorithm the signing key
+     * actually uses; a verifier that is handed the wrong identifier fails with
+     * "algorithm-not-supported" or, worse, tries the wrong primitive. The
+     * directory reports it from GET /authors/{id}/public-key.
+     *
+     * The remote lookup is cached because this runs on every rendered view of
+     * a signed post.
+     *
+     * @since    1.0.0
+     * @param    object $signature The signature object.
+     * @return   array             Key metadata: 'keyid' and 'algorithm'.
+     */
+    private function get_key_metadata($signature) {
+        $keyid = '';
+        $algorithm = '';
+
+        $api_response = json_decode($signature->api_response_json, true);
+        if (is_array($api_response)) {
+            foreach (array('keyid', 'keyId', 'publicKeyUrl') as $field) {
+                if (!empty($api_response[$field])) {
+                    $keyid = (string) $api_response[$field];
+                    break;
+                }
+            }
+
+            if (!empty($api_response['algorithm'])) {
+                $algorithm = (string) $api_response['algorithm'];
             }
         }
 
-        // Build the signed-section element with signature attributes
-        $html = '<signed-section ';
-        $html .= 'signature="' . esc_attr($signature->signature) . '" ';
-        $html .= 'keyid="' . esc_attr($author_public_key) . '" ';
-        $html .= 'algorithm="ed25519" ';
-        $html .= 'content-hash="' . esc_attr($signature->content_hash) . '" ';
-        $html .= 'style="display: block;">';
+        if ($keyid === '' || $algorithm === '') {
+            $remote = $this->get_remote_key_metadata($signature);
 
-        // Inner metadata: timestamp
-        $signed_at = $signature->signed_at ? $signature->signed_at : $signature->created_at;
-        if ($signed_at) {
-            $html .= '<meta name="signed-at" content="' . esc_attr($signed_at) . '">';
+            if ($keyid === '' && $remote['keyid'] !== '') {
+                $keyid = $remote['keyid'];
+            }
+
+            if ($algorithm === '' && $remote['algorithm'] !== '') {
+                $algorithm = $remote['algorithm'];
+            }
         }
 
-        // Inner metadata: author name
+        return array(
+            'keyid' => $keyid,
+            'algorithm' => $algorithm,
+        );
+    }
+
+    /**
+     * Look up key metadata from the signing server, with a short cache.
+     *
+     * @since    1.0.0
+     * @param    object $signature The signature object.
+     * @return   array             Key metadata: 'keyid' and 'algorithm'.
+     */
+    private function get_remote_key_metadata($signature) {
+        $empty = array('keyid' => '', 'algorithm' => '');
+
+        $cache_key = 'content_signing_key_' . md5($signature->server_id . '|' . $signature->signing_author_id);
+        $cached = get_transient($cache_key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $server = $this->db->get_server($signature->server_id);
+        if (!$server) {
+            return $empty;
+        }
+
+        $api_client = new ContentSigning_API_Client(
+            $server->api_url,
+            $this->db->decrypt($server->api_key_encrypted),
+            $this->db
+        );
+
+        $result = $api_client->get_author_public_key($signature->signing_author_id);
+        if (is_wp_error($result) || !is_array($result)) {
+            return $empty;
+        }
+
+        $metadata = $empty;
+        if (!empty($result['id'])) {
+            $metadata['keyid'] = rtrim($server->api_url, '/') . '/keys/' . rawurlencode((string) $result['id']);
+        }
+        if (!empty($result['algorithm'])) {
+            $metadata['algorithm'] = (string) $result['algorithm'];
+        }
+
+        set_transient($cache_key, $metadata, 12 * HOUR_IN_SECONDS);
+
+        return $metadata;
+    }
+
+    /**
+     * Get direct child claim meta HTML for a signed-section.
+     *
+     * @since    1.0.0
+     * @param    object $signature The signature object.
+     * @return   string            The meta HTML.
+     */
+    private function get_claim_meta_html($signature) {
+        $claims = $this->get_protocol_claims($signature);
+        $html = '';
+
+        foreach ($claims as $name => $value) {
+            $html .= '<meta name="' . esc_attr($name) . '" content="' . esc_attr($value) . '">';
+        }
+
+        return $html;
+    }
+
+    /**
+     * Get the protocol claim map for a signature.
+     *
+     * @since    1.0.0
+     * @param    object $signature The signature object.
+     * @return   array             Claims keyed by direct meta name.
+     */
+    private function get_protocol_claims($signature) {
+        $claims = array();
+        $stored_claims = json_decode($signature->claims_json, true);
+
+        if (is_array($stored_claims)) {
+            foreach ($stored_claims as $key => $value) {
+                if (is_array($value) && isset($value['name'], $value['content'])) {
+                    $claims[$value['name']] = $value['content'];
+                    continue;
+                }
+
+                if (is_array($value)) {
+                    $value = implode(', ', $value);
+                }
+
+                $name = (string) $key;
+                if ($name !== 'author' && $name !== 'signed-at' && strpos($name, 'claim:') !== 0) {
+                    $name = 'claim:' . $name;
+                }
+
+                $claims[$name] = (string) $value;
+            }
+        }
+
         $author_name = $signature->signing_author_id;
         $wp_user = get_user_by('ID', $signature->wp_user_id);
         if ($wp_user) {
             $author_name = $wp_user->display_name;
         }
-        if ($author_name) {
-            $html .= '<meta name="author" content="' . esc_attr($author_name) . '">';
+        if ($author_name && empty($claims['author'])) {
+            $claims['author'] = $author_name;
         }
 
-        // Inner metadata: claims from JSON
-        $claims = json_decode($signature->claims_json, true);
-        if (!empty($claims)) {
-            foreach ($claims as $key => $value) {
-                if (is_array($value)) {
-                    $value = implode(', ', $value);
-                }
-                $html .= '<meta name="claim:' . esc_attr($key) . '" content="' . esc_attr($value) . '">';
-            }
+        if (empty($claims['signed-at'])) {
+            $claims['signed-at'] = $this->format_signed_at($signature->signed_at ? $signature->signed_at : $signature->created_at);
         }
 
-        $html .= '</signed-section>';
+        return $claims;
+    }
 
-        return $html;
+    /**
+     * Format a stored datetime as RFC3339 UTC.
+     *
+     * @since    1.0.0
+     * @param    string $datetime The stored datetime.
+     * @return   string           The RFC3339 UTC datetime.
+     */
+    private function format_signed_at($datetime) {
+        $timestamp = strtotime($datetime);
+        if (!$timestamp) {
+            $timestamp = time();
+        }
+
+        return gmdate('Y-m-d\TH:i:s\Z', $timestamp);
     }
 }

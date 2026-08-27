@@ -21,8 +21,15 @@ require_once $_tests_dir . '/includes/functions.php';
 
 /**
  * Manually load the plugin being tested.
+ *
+ * The encryption key is what wp-config.php supplies on a real site; without it
+ * ContentSigning_DB::encrypt() fails closed and every API-key write is refused.
  */
 function _manually_load_plugin() {
+	if ( ! defined( 'HTMLTRUST_ENCRYPTION_KEY' ) ) {
+		define( 'HTMLTRUST_ENCRYPTION_KEY', base64_encode( str_repeat( "\x01", 32 ) ) );
+	}
+
 	require dirname( dirname( __FILE__ ) ) . '/content-signing.php';
 }
 tests_add_filter( 'muplugins_loaded', '_manually_load_plugin' );

@@ -20,7 +20,7 @@ class ContentSigning_DB_TestCase extends ContentSigning_TestCase {
     /**
      * Set up before each test.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
         
         // Get DB instance
@@ -33,7 +33,7 @@ class ContentSigning_DB_TestCase extends ContentSigning_TestCase {
     /**
      * Tear down after each test.
      */
-    public function tearDown() {
+    public function tearDown(): void {
         // Clean up test data
         $this->clean_test_data();
         

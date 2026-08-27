@@ -262,13 +262,18 @@ class ContentSigning_Admin_PostMetaBox {
             false
         );
         
+        // The sign and verify AJAX handlers verify a post-scoped nonce, so the
+        // one handed to the script has to be minted for the post being edited.
+        $post = get_post();
+        $post_id = $post ? $post->ID : 0;
+
         // Localize script
         wp_localize_script(
             'content-signing-post-meta-box',
             'content_signing_post_meta_box',
             array(
                 'ajax_url' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('content_signing_nonce'),
+                'nonce' => wp_create_nonce('content_signing_post_' . $post_id),
                 'sign_post_confirm' => __('Are you sure you want to sign this post?', 'content-signing'),
                 'signing_text' => __('Signing...', 'content-signing'),
                 'verifying_text' => __('Verifying...', 'content-signing'),

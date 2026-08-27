@@ -114,16 +114,24 @@
                     if (response.success) {
                         // Show success message
                         const resultClass = response.data.valid ? 'valid' : 'invalid';
-                        const resultText = response.data.valid ? 
-                            content_signing_post_meta_box.valid_text : 
+                        const resultText = response.data.valid ?
+                            content_signing_post_meta_box.valid_text :
                             content_signing_post_meta_box.invalid_text;
-                        
-                        const $result = $('<div class="verify-result ' + resultClass + '">' + resultText + '</div>');
+
+                        // Built with .text(): resultText is local, but the
+                        // branch below carries trust-server strings and both
+                        // paths must stay markup-free.
+                        const $result = $('<div>')
+                            .addClass('verify-result ' + resultClass)
+                            .text(resultText);
                         $listItem.append($result);
                     } else {
-                        // Show error message
+                        // Show error message. response.data.message is relayed
+                        // verbatim from the trust server and is untrusted.
                         const errorMessage = response.data && response.data.message ? response.data.message : content_signing_post_meta_box.error_text;
-                        const $result = $('<div class="verify-result invalid">' + content_signing_post_meta_box.error_text + ' ' + errorMessage + '</div>');
+                        const $result = $('<div>')
+                            .addClass('verify-result invalid')
+                            .text(content_signing_post_meta_box.error_text + ' ' + errorMessage);
                         $listItem.append($result);
                     }
                 },
@@ -133,7 +141,9 @@
                     $button.text(content_signing_post_meta_box.verify_text);
 
                     // Show error message
-                    const $result = $('<div class="verify-result invalid">' + content_signing_post_meta_box.error_text + ' ' + content_signing_post_meta_box.ajax_error + '</div>');
+                    const $result = $('<div>')
+                        .addClass('verify-result invalid')
+                        .text(content_signing_post_meta_box.error_text + ' ' + content_signing_post_meta_box.ajax_error);
                     $listItem.append($result);
                 }
             });

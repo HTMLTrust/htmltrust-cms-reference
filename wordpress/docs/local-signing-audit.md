@@ -30,12 +30,14 @@ Today's flow, per `includes/class-content-signing-signing-service.php` ->
 1. WordPress fires `publish_post` (or `transition_post_status`).
 2. `ContentSigning_Hooks::on_publish_post` -> `Signing_Service::process_post`
    -> `Signing_Service::sign_post`.
-3. `prepare_content_data()` strips HTML, runs the canonicalization PHP
-   binding (`HTMLTrust\Canonicalization\Canonicalize::normalize`), computes
-   `sha256:<hex>`, attaches the post author's claims.
+3. `prepare_content_data()` canonicalizes the signed content, including
+   `href`, `src`, `alt`, and `aria-label` records, computes
+   `sha256:<unpadded standard Base64>`, serializes `domain` as the Web
+   origin, and attaches direct meta claims such as `author`, `signed-at`,
+   and `claim:*`.
 4. `ContentSigning_API_Client::sign_content()` POSTs `{contentHash, domain,
-   claims}` to `<trust-server>/api/content/sign` with the author's API key
-   in `X-AUTHOR-API-KEY`.
+   claims, signedAt, sourceURL}` to `<trust-server>/api/content/sign` with
+   the author's API key in `X-AUTHOR-API-KEY`.
 5. The trust server holds the author's signing key, signs server-side, and
    returns `{signature, ...}`.
 6. We persist the signature row in `wp_content_signing_signatures` and

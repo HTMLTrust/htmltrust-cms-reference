@@ -30,18 +30,51 @@ class Test_Content_Signing_DB extends ContentSigning_DB_TestCase {
      */
     public function test_encrypt_decrypt() {
         $original = 'test-api-key';
-        
+
         // Encrypt
         $encrypted = $this->db->encrypt($original);
-        
+
         // Verify encrypted is different from original
         $this->assertNotEquals($original, $encrypted);
-        
+
+        // Verify the stored value is ciphertext, not reversible encoding
+        $this->assertNotEquals($original, base64_decode($encrypted, true));
+        $this->assertStringNotContainsString($original, (string) base64_decode($encrypted, true));
+
         // Decrypt
         $decrypted = $this->db->decrypt($encrypted);
-        
+
         // Verify decrypted matches original
         $this->assertEquals($original, $decrypted);
+    }
+
+    /**
+     * Test that encryption uses a fresh nonce per call.
+     */
+    public function test_encrypt_is_nondeterministic() {
+        $original = 'test-api-key';
+
+        $this->assertNotEquals($this->db->encrypt($original), $this->db->encrypt($original));
+    }
+
+    /**
+     * Test that tampered ciphertext is rejected rather than silently decoded.
+     */
+    public function test_decrypt_rejects_tampered_ciphertext() {
+        $encrypted = $this->db->encrypt('test-api-key');
+        $raw = base64_decode($encrypted, true);
+
+        // Flip a bit in the last ciphertext byte.
+        $raw[strlen($raw) - 1] = chr(ord($raw[strlen($raw) - 1]) ^ 0x01);
+
+        $this->assertNull($this->db->decrypt(base64_encode($raw)));
+    }
+
+    /**
+     * Test that legacy base64 values from the previous release do not decrypt.
+     */
+    public function test_decrypt_rejects_legacy_base64_values() {
+        $this->assertNull($this->db->decrypt(base64_encode('test-api-key')));
     }
 
     /**

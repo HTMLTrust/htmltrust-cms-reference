@@ -53,6 +53,19 @@ class ContentSigning_Public {
     }
 
     /**
+     * Get the display handler.
+     *
+     * The signing service needs it to detach the `the_content` wrapper while
+     * rendering the bytes it hashes.
+     *
+     * @since    1.0.0
+     * @return   ContentSigning_Display    The display handler.
+     */
+    public function get_display() {
+        return $this->display;
+    }
+
+    /**
      * Register the stylesheets for the public-facing side of the site.
      *
      * @since    1.0.0

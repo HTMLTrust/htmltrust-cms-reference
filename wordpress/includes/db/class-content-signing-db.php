@@ -58,31 +58,125 @@ class ContentSigning_DB {
     }
 
     /**
-     * Encrypt sensitive data.
+     * Derive the symmetric encryption key.
+     *
+     * The key material comes from the HTMLTRUST_ENCRYPTION_KEY constant, which
+     * the site owner defines in wp-config.php. Generate one with:
+     *
+     *     php -r 'echo sodium_bin2base64(sodium_crypto_secretbox_keygen(), SODIUM_BASE64_VARIANT_ORIGINAL), "\n";'
+     *
+     * and add it to wp-config.php:
+     *
+     *     define('HTMLTRUST_ENCRYPTION_KEY', '<the base64 string>');
+     *
+     * A base64 value decoding to exactly 32 bytes is used as the key directly.
+     * Anything else is run through BLAKE2b to produce a 32-byte key, so a
+     * passphrase also works, with correspondingly less entropy.
      *
      * @since    1.0.0
-     * @param    string    $data    The data to encrypt.
-     * @return   string             The encrypted data.
+     * @access   private
+     * @return   string|null    The 32-byte key, or null if none is configured.
+     */
+    private function get_encryption_key() {
+        if (!defined('HTMLTRUST_ENCRYPTION_KEY')) {
+            return null;
+        }
+
+        $configured = (string) HTMLTRUST_ENCRYPTION_KEY;
+        if ($configured === '') {
+            return null;
+        }
+
+        $decoded = base64_decode($configured, true);
+        if (false !== $decoded && strlen($decoded) === SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
+            return $decoded;
+        }
+
+        return sodium_crypto_generichash($configured, '', SODIUM_CRYPTO_SECRETBOX_KEYBYTES);
+    }
+
+    /**
+     * Check whether authenticated encryption is available and configured.
+     *
+     * @since    1.0.0
+     * @return   bool    True when encrypt()/decrypt() can operate.
+     */
+    public function has_encryption_key() {
+        return function_exists('sodium_crypto_secretbox') && null !== $this->get_encryption_key();
+    }
+
+    /**
+     * Encrypt sensitive data.
+     *
+     * Authenticated encryption via XSalsa20-Poly1305 (sodium_crypto_secretbox).
+     * A fresh random nonce is generated per call and prepended to the
+     * ciphertext; the pair is base64-encoded for storage in a text column.
+     *
+     * Fails closed: returns null when no key is configured, rather than
+     * degrading to storing recoverable plaintext.
+     *
+     * MIGRATION: values written by the previous release were base64-encoded
+     * plaintext, not ciphertext. They will not decrypt and are not migrated
+     * automatically, deliberately, because base64 is reversible by anyone with
+     * database read access and those keys must be treated as disclosed. After
+     * defining HTMLTRUST_ENCRYPTION_KEY, revoke every server and author API key
+     * on the signing server and re-enter the replacements in the plugin's
+     * server and author profile screens.
+     *
+     * @since    1.0.0
+     * @param    string      $data    The data to encrypt.
+     * @return   string|null          The encrypted data, or null on failure.
      */
     public function encrypt($data) {
-        // For simplicity, we're using base64 encoding here
-        // In a production environment, use a more secure encryption method
-        // Consider using WordPress's Sodium compatibility layer if available
-        return base64_encode($data);
+        if (!function_exists('sodium_crypto_secretbox')) {
+            return null;
+        }
+
+        $key = $this->get_encryption_key();
+        if (null === $key) {
+            return null;
+        }
+
+        $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+        $ciphertext = sodium_crypto_secretbox((string) $data, $nonce, $key);
+        sodium_memzero($key);
+
+        return base64_encode($nonce . $ciphertext);
     }
 
     /**
      * Decrypt sensitive data.
      *
+     * Splits the stored blob into nonce and ciphertext and verifies the
+     * Poly1305 tag. Any tampering, truncation, or wrong key yields null.
+     *
      * @since    1.0.0
-     * @param    string    $data    The data to decrypt.
-     * @return   string             The decrypted data.
+     * @param    string      $data    The data to decrypt.
+     * @return   string|null          The decrypted data, or null on failure.
      */
     public function decrypt($data) {
-        // For simplicity, we're using base64 decoding here
-        // In a production environment, use a more secure decryption method
-        // Consider using WordPress's Sodium compatibility layer if available
-        return base64_decode($data);
+        if (!function_exists('sodium_crypto_secretbox_open') || !is_string($data) || $data === '') {
+            return null;
+        }
+
+        $key = $this->get_encryption_key();
+        if (null === $key) {
+            return null;
+        }
+
+        $raw = base64_decode($data, true);
+        if (false === $raw || strlen($raw) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES) {
+            sodium_memzero($key);
+            return null;
+        }
+
+        $nonce = substr($raw, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+        $ciphertext = substr($raw, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+
+        $plaintext = sodium_crypto_secretbox_open($ciphertext, $nonce, $key);
+        sodium_memzero($key);
+
+        return false === $plaintext ? null : $plaintext;
     }
 
     /**
@@ -106,12 +200,17 @@ class ContentSigning_DB {
         
         $data = wp_parse_args($data, $defaults);
         
-        // Encrypt the API key
+        // Encrypt the API key. Refuse the write outright if encryption is
+        // unavailable: storing an unencrypted key would be worse than failing.
         if (!empty($data['api_key'])) {
-            $data['api_key_encrypted'] = $this->encrypt($data['api_key']);
+            $encrypted = $this->encrypt($data['api_key']);
+            if (null === $encrypted) {
+                return false;
+            }
+            $data['api_key_encrypted'] = $encrypted;
             unset($data['api_key']);
         }
-        
+
         // If this is set as default, unset any existing defaults
         if ($data['is_default_server']) {
             $this->wpdb->update(
@@ -140,10 +239,14 @@ class ContentSigning_DB {
         
         // Encrypt the API key if provided
         if (!empty($data['api_key'])) {
-            $data['api_key_encrypted'] = $this->encrypt($data['api_key']);
+            $encrypted = $this->encrypt($data['api_key']);
+            if (null === $encrypted) {
+                return false;
+            }
+            $data['api_key_encrypted'] = $encrypted;
             unset($data['api_key']);
         }
-        
+
         // If this is set as default, unset any existing defaults
         if (isset($data['is_default_server']) && $data['is_default_server']) {
             $this->wpdb->update(
@@ -243,18 +346,23 @@ class ContentSigning_DB {
         
         $data = wp_parse_args($data, $defaults);
         
-        // Encrypt the API key
+        // Encrypt the API key. Refuse the write outright if encryption is
+        // unavailable: storing an unencrypted key would be worse than failing.
         if (!empty($data['author_api_key'])) {
-            $data['author_api_key_encrypted'] = $this->encrypt($data['author_api_key']);
+            $encrypted = $this->encrypt($data['author_api_key']);
+            if (null === $encrypted) {
+                return false;
+            }
+            $data['author_api_key_encrypted'] = $encrypted;
             unset($data['author_api_key']);
         }
-        
+
         // Encode default claims as JSON if it's an array
         if (isset($data['default_claims']) && is_array($data['default_claims'])) {
             $data['default_claims_json'] = wp_json_encode($data['default_claims']);
             unset($data['default_claims']);
         }
-        
+
         // Insert the author
         $result = $this->wpdb->insert($this->tables['authors'], $data);
         
@@ -274,10 +382,14 @@ class ContentSigning_DB {
         
         // Encrypt the API key if provided
         if (!empty($data['author_api_key'])) {
-            $data['author_api_key_encrypted'] = $this->encrypt($data['author_api_key']);
+            $encrypted = $this->encrypt($data['author_api_key']);
+            if (null === $encrypted) {
+                return false;
+            }
+            $data['author_api_key_encrypted'] = $encrypted;
             unset($data['author_api_key']);
         }
-        
+
         // Encode default claims as JSON if it's an array
         if (isset($data['default_claims']) && is_array($data['default_claims'])) {
             $data['default_claims_json'] = wp_json_encode($data['default_claims']);

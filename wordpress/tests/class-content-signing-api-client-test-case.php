@@ -34,7 +34,7 @@ class ContentSigning_API_Client_TestCase extends ContentSigning_DB_TestCase {
     /**
      * Set up before each test.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
         
         // Create a mock API client
@@ -43,6 +43,15 @@ class ContentSigning_API_Client_TestCase extends ContentSigning_DB_TestCase {
             $this->mock_api_key,
             $this->db
         );
+
+        update_option('content_signing_enable_signing', true);
+        update_option('content_signing_sign_on_publish', true);
+        update_option('content_signing_sign_on_update', false);
+        update_option('content_signing_sign_days_before_publish', 0);
+        update_option('content_signing_sign_days_after_publish', 0);
+        update_option('content_signing_enable_endorsements', false);
+        update_option('content_signing_endorser_profiles', array());
+        wp_clear_scheduled_hook('content_signing_scheduled_signing');
         
         // Add filter to mock API responses
         add_filter('pre_http_request', array($this, 'mock_api_response'), 10, 3);
@@ -51,11 +60,24 @@ class ContentSigning_API_Client_TestCase extends ContentSigning_DB_TestCase {
     /**
      * Tear down after each test.
      */
-    public function tearDown() {
+    public function tearDown(): void {
         // Remove filter
         remove_filter('pre_http_request', array($this, 'mock_api_response'), 10);
         
         parent::tearDown();
+    }
+
+    protected function create_test_server($data = array()) {
+        return parent::create_test_server(wp_parse_args($data, array(
+            'api_url' => $this->mock_server_url,
+            'api_key' => $this->mock_api_key,
+        )));
+    }
+
+    protected function create_test_author($data = array()) {
+        return parent::create_test_author(wp_parse_args($data, array(
+            'author_api_key' => 'mock-author-api-key',
+        )));
     }
 
     /**
@@ -101,19 +123,22 @@ class ContentSigning_API_Client_TestCase extends ContentSigning_DB_TestCase {
             );
         }
         
-        // Handle different endpoints
+        // Handle different endpoints. Path parameters are rawurldecode()d
+        // because the client percent-encodes each interpolated segment, and a
+        // real server (Express, in the reference directory) decodes them
+        // before the route handler sees them.
         switch (true) {
             case preg_match('/^authors$/', $endpoint) && $method === 'POST':
                 return $this->mock_create_author_response($body);
                 
             case preg_match('/^authors\/([^\/]+)$/', $endpoint, $matches) && $method === 'GET':
-                return $this->mock_get_author_response($matches[1]);
+                return $this->mock_get_author_response(rawurldecode($matches[1]));
                 
             case preg_match('/^authors\/([^\/]+)$/', $endpoint, $matches) && $method === 'PUT':
-                return $this->mock_update_author_response($matches[1], $body);
+                return $this->mock_update_author_response(rawurldecode($matches[1]), $body);
                 
             case preg_match('/^authors\/([^\/]+)\/public-key$/', $endpoint, $matches) && $method === 'GET':
-                return $this->mock_get_author_public_key_response($matches[1]);
+                return $this->mock_get_author_public_key_response(rawurldecode($matches[1]));
                 
             case preg_match('/^content\/sign$/', $endpoint) && $method === 'POST':
                 return $this->mock_sign_content_response($body);
@@ -125,19 +150,19 @@ class ContentSigning_API_Client_TestCase extends ContentSigning_DB_TestCase {
                 return $this->mock_get_claim_types_response();
                 
             case preg_match('/^claims\/([^\/]+)$/', $endpoint, $matches) && $method === 'GET':
-                return $this->mock_get_claim_type_response($matches[1]);
+                return $this->mock_get_claim_type_response(rawurldecode($matches[1]));
                 
             case preg_match('/^directory\/keys$/', $endpoint) && $method === 'GET':
                 return $this->mock_search_public_keys_response();
                 
             case preg_match('/^directory\/keys\/([^\/]+)\/reputation$/', $endpoint, $matches) && $method === 'GET':
-                return $this->mock_get_key_reputation_response($matches[1]);
+                return $this->mock_get_key_reputation_response(rawurldecode($matches[1]));
                 
             case preg_match('/^directory\/content$/', $endpoint) && $method === 'GET':
                 return $this->mock_search_signed_content_response();
                 
             case preg_match('/^directory\/content\/([^\/]+)\/occurrences$/', $endpoint, $matches) && $method === 'GET':
-                return $this->mock_find_content_occurrences_response($matches[1]);
+                return $this->mock_find_content_occurrences_response(rawurldecode($matches[1]));
                 
             default:
                 return array(
@@ -219,6 +244,7 @@ class ContentSigning_API_Client_TestCase extends ContentSigning_DB_TestCase {
                 'id' => 'mock-key-id',
                 'type' => 'HUMAN',
                 'publicKey' => 'mock-public-key',
+                'algorithm' => 'ed25519',
             )),
         );
     }
@@ -237,6 +263,8 @@ class ContentSigning_API_Client_TestCase extends ContentSigning_DB_TestCase {
                 'domain' => isset($body['domain']) ? $body['domain'] : 'example.com',
                 'authorId' => 'mock-author-id',
                 'keyId' => 'mock-key-id',
+                'keyid' => $this->mock_server_url . '/keys/mock-key-id',
+                'algorithm' => 'ed25519',
                 'signature' => 'mock-signature',
                 'claims' => isset($body['claims']) ? $body['claims'] : array(),
                 'timestamp' => time(),

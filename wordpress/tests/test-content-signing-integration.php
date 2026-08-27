@@ -27,7 +27,7 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
     /**
      * Set up before each test.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
         
         // Get components
@@ -67,9 +67,6 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         // Publish the post
         wp_publish_post($post_id);
         $post = get_post($post_id);
-        
-        // Simulate the save_post hook
-        do_action('save_post', $post_id, $post, false);
         
         // Verify a signature was created
         $signatures = $this->db->get_signatures_by_post_id($post_id);
@@ -160,11 +157,9 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         // Create a post
         $post_id = $this->create_test_post(array(
             'post_author' => $user_id,
+            'post_status' => 'publish',
         ));
-        $post = get_post($post_id);
-        
-        // Simulate the save_post hook
-        do_action('save_post', $post_id, $post, false);
+        wp_publish_post($post_id);
         
         // Verify no signatures yet
         $signatures = $this->db->get_signatures_by_post_id($post_id);
@@ -220,10 +215,7 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         $post_id = $this->create_test_post(array(
             'post_author' => $user_id,
         ));
-        $post = get_post($post_id);
-        
-        // Simulate the save_post hook
-        do_action('save_post', $post_id, $post, false);
+        wp_publish_post($post_id);
         
         // Verify signatures were created (1 primary + 2 endorsements)
         $signatures = $this->db->get_signatures_by_post_id($post_id);
@@ -254,9 +246,71 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         update_post_meta($post_id, '_content_signing_claims', array('ContentType' => 'Article'));
         
         // Verify post meta is saved correctly
-        $this->assertTrue(get_post_meta($post_id, '_content_signing_disable', true));
+        $this->assertTrue((bool) get_post_meta($post_id, '_content_signing_disable', true));
         $claims = get_post_meta($post_id, '_content_signing_claims', true);
         $this->assertEquals('Article', $claims['ContentType']);
+    }
+
+    /**
+     * Test public rendering wraps the actual post content in signed-section.
+     */
+    public function test_public_rendering_wraps_actual_signed_content() {
+        $server_id = $this->create_test_server();
+        $user_id = $this->create_test_user(array(
+            'display_name' => 'Alice Example',
+        ));
+        $post_id = $this->create_test_post(array(
+            'post_author' => $user_id,
+            'post_content' => '<p>Signed body</p>',
+        ));
+
+        $signature_id = $this->create_test_signature(array(
+            'post_id' => $post_id,
+            'server_id' => $server_id,
+            'wp_user_id' => $user_id,
+            'content_hash' => 'sha256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU',
+            'domain' => 'https://example.org',
+            'signature' => 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq',
+            'claims' => array(
+                'author' => 'Alice Example',
+                'signed-at' => '2026-05-01T10:30:00Z',
+                'claim:ContentType' => 'Article',
+            ),
+            'api_response' => array(
+                'keyId' => 'did:web:author.example',
+                'algorithm' => 'ed25519',
+            ),
+        ));
+
+        $display = new ContentSigning_Display($this->db, $this->api_client);
+        $method = new ReflectionMethod($display, 'get_signed_section_html');
+        $method->setAccessible(true);
+        $html = $method->invoke($display, $this->db->get_signature($signature_id), '<p>Signed body</p>');
+
+        $this->assertStringStartsWith('<signed-section ', $html);
+        $this->assertStringContainsString('keyid="did:web:author.example"', $html);
+        $this->assertStringContainsString('<meta name="author" content="Alice Example">', $html);
+        $this->assertStringContainsString('<meta name="signed-at" content="2026-05-01T10:30:00Z">', $html);
+        $this->assertStringContainsString('<meta name="claim:ContentType" content="Article">', $html);
+        $this->assertStringContainsString('<p>Signed body</p></signed-section>', $html);
+    }
+
+    public function test_public_rendering_fails_closed_without_algorithm_metadata() {
+        $post_id = $this->create_test_post(array('post_content' => '<p>Signed body</p>'));
+        $signature_id = $this->create_test_signature(array(
+            'post_id' => $post_id,
+            'server_id' => 999999,
+            'signature' => 'qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq',
+            'api_response' => array('keyId' => 'did:web:author.example'),
+        ));
+        $display = new ContentSigning_Display($this->db, $this->api_client);
+        $method = new ReflectionMethod($display, 'get_signed_section_html');
+        $method->setAccessible(true);
+
+        $this->assertSame(
+            '<p>Signed body</p>',
+            $method->invoke($display, $this->db->get_signature($signature_id), '<p>Signed body</p>')
+        );
     }
 
     /**

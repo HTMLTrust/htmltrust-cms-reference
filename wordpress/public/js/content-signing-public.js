@@ -85,7 +85,8 @@
           "content-signing-verification-loading content-signing-verification-error",
         )
         .addClass("content-signing-verification-success")
-        .html(buildVerificationResultHtml(response.data, true));
+        .empty()
+        .append(buildVerificationResult(response.data, true));
     } else {
       // Show error message
       $resultContainer
@@ -93,58 +94,75 @@
           "content-signing-verification-loading content-signing-verification-success",
         )
         .addClass("content-signing-verification-error")
-        .html(buildVerificationResultHtml(response.data, false));
+        .empty()
+        .append(buildVerificationResult(response.data, false));
     }
   }
 
   /**
-   * Build the verification result HTML.
+   * Build the verification result nodes.
+   *
+   * Every value here originates from the trust server and is untrusted: a
+   * directory is not part of the trust root, and its response strings reach
+   * this page verbatim. Nodes are therefore built with .text() rather than
+   * concatenated into markup.
    *
    * @param {Object} data - The verification data.
    * @param {boolean} success - Whether verification was successful.
-   * @return {string} The HTML for the verification result.
+   * @return {jQuery} The nodes for the verification result.
    */
-  function buildVerificationResultHtml(data, success) {
-    let html = "";
+  function buildVerificationResult(data, success) {
+    const $nodes = $();
+    const details = data && data.verification_details;
 
     if (success) {
-      html +=
-        "<p><strong>" + content_signing_public.i18n.verified + "</strong></p>";
+      const $heading = $("<p>").append(
+        $("<strong>").text(content_signing_public.i18n.verified),
+      );
+      let $result = $nodes.add($heading);
 
       // Add verification details if available
-      if (data.verification_details) {
-        html += '<ul class="content-signing-verification-details">';
+      if (details && typeof details === "object") {
+        const $list = $("<ul>").addClass(
+          "content-signing-verification-details",
+        );
 
         // Add each verification detail
-        for (const key in data.verification_details) {
-          if (data.verification_details.hasOwnProperty(key)) {
-            const value = data.verification_details[key];
-            html +=
-              '<li><span class="content-signing-verification-key">' +
-              key +
-              ":</span> ";
-            html +=
-              '<span class="content-signing-verification-value">' +
-              value +
-              "</span></li>";
-          }
-        }
+        Object.keys(details).forEach(function (key) {
+          $list.append(
+            $("<li>")
+              .append(
+                $("<span>")
+                  .addClass("content-signing-verification-key")
+                  .text(key + ":"),
+              )
+              .append(document.createTextNode(" "))
+              .append(
+                $("<span>")
+                  .addClass("content-signing-verification-value")
+                  .text(String(details[key])),
+              ),
+          );
+        });
 
-        html += "</ul>";
+        $result = $result.add($list);
       }
-    } else {
-      html +=
-        "<p><strong>" +
-        content_signing_public.i18n.not_verified +
-        "</strong></p>";
 
-      // Add error message if available
-      if (data.message) {
-        html += "<p>" + data.message + "</p>";
-      }
+      return $result;
     }
 
-    return html;
+    let $result = $nodes.add(
+      $("<p>").append(
+        $("<strong>").text(content_signing_public.i18n.not_verified),
+      ),
+    );
+
+    // Add error message if available
+    if (data && data.message) {
+      $result = $result.add($("<p>").text(String(data.message)));
+    }
+
+    return $result;
   }
 
   /**
