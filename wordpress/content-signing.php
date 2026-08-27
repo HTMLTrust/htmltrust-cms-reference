@@ -4,6 +4,7 @@
  * Plugin URI: https://example.com/content-signing
  * Description: Integrates WordPress with content signing services to verify content origin and authenticity.
  * Version: 1.0.0
+ * Requires PHP: 7.2
  * Author: Jason Grey
  * Author URI: https://jason-grey.com
  * License: GPL-2.0+

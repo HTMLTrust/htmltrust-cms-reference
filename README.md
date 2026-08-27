@@ -50,7 +50,7 @@ htmltrust-cms-reference/
 ### Prerequisites
 
 - WordPress 5.0+
-- PHP 7.0+
+- PHP 7.2+
 - A running [HTMLTrust trust directory server](https://github.com/HTMLTrust/htmltrust-server-reference)
 
 ### Installation
