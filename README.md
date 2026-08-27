@@ -76,9 +76,37 @@ Then either:
 
 ```sh
 cd wordpress/
-bin/install-wp-tests.sh wordpress_test root '' localhost latest
+export TEST_TMP_DIR="${HOME}/tmp/htmltrust-cms-tests"
+mkdir -p "$TEST_TMP_DIR"
+TMPDIR="$TEST_TMP_DIR" \
+WP_TESTS_DIR="$TEST_TMP_DIR/wordpress-tests-lib" \
+WP_CORE_DIR="$TEST_TMP_DIR/wordpress" \
+bin/install-wp-tests.sh wordpress_test root '' localhost 6.9.4
+TMPDIR="$TEST_TMP_DIR" \
+WP_TESTS_DIR="$TEST_TMP_DIR/wordpress-tests-lib" \
+WP_CORE_DIR="$TEST_TMP_DIR/wordpress" \
 composer test
 ```
+
+The installer downloads WordPress and the WordPress test library into the
+disposable directory under `$HOME/tmp`. Set `DB_HOST` in the installer command
+when MySQL or MariaDB is running in a container. The test suite expects the
+database named by the first argument to exist or for the database user to be
+allowed to create it.
+
+For a development container, open this repository in VS Code Dev Containers.
+The configuration provides PHP 8.3, Composer, Node 22, Go 1.25, and Hugo
+Extended 0.161.1. Run the same commands above from `wordpress/` after the
+container starts.
+
+### Using the reference server
+
+The WordPress plugin's signing client is compatible with the Node reference
+server in `htmltrust-server-reference`. Start that server at
+`http://localhost:3000`, then configure the plugin's server profile with that
+URL. The plugin uses the server's author API key for `POST /api/content/sign`
+and sends the publication origin as the `domain` field. Use an origin such as
+`https://example.com`, including the scheme and optional port.
 
 ## The HTML Protocol
 

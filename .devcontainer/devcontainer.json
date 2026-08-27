@@ -12,10 +12,10 @@
     },
     "ghcr.io/devcontainers/features/hugo:1": {
       "extended": true,
-      "version": "latest"
+      "version": "0.161.1"
     },
     "ghcr.io/devcontainers/features/go:1": {
-      "version": "1.23"
+      "version": "1.25"
     }
   },
   "postCreateCommand": "cd wordpress && composer install --ignore-platform-req=ext-intl --no-interaction 2>/dev/null; echo 'Ready'",
