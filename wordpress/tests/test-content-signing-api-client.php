@@ -237,10 +237,6 @@ class Test_Content_Signing_API_Client extends ContentSigning_API_Client_TestCase
      * Test API error handling.
      */
     public function test_api_error_handling() {
-        // Temporarily modify the mock API key to trigger an error
-        $original_key = $this->mock_api_key;
-        $this->mock_api_key = 'invalid-key';
-        
         // Create a new API client with the invalid key
         $api_client = new ContentSigning_API_Client(
             $this->mock_server_url,
@@ -256,25 +252,6 @@ class Test_Content_Signing_API_Client extends ContentSigning_API_Client_TestCase
         $this->assertEquals('api_error', $result->get_error_code());
         $this->assertEquals('Invalid API key', $result->get_error_message());
         
-        // Restore original key
-        $this->mock_api_key = $original_key;
     }
 
-    /**
-     * Helper method to check if a value is not a WP_Error.
-     *
-     * @param mixed $value The value to check.
-     */
-    private function assertNotWPError($value) {
-        $this->assertFalse(is_wp_error($value), 'Value is a WP_Error: ' . (is_wp_error($value) ? $value->get_error_message() : ''));
-    }
-
-    /**
-     * Helper method to check if a value is a WP_Error.
-     *
-     * @param mixed $value The value to check.
-     */
-    private function assertWPError($value) {
-        $this->assertTrue(is_wp_error($value), 'Value is not a WP_Error');
-    }
 }

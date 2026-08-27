@@ -68,7 +68,7 @@ class ContentSigning_Scheduler {
      * @return   bool                  True if canceled successfully, false otherwise.
      */
     public function cancel_scheduled_signing($post_id) {
-        return wp_clear_scheduled_hook('content_signing_scheduled_signing', array($post_id));
+        return wp_clear_scheduled_hook('content_signing_scheduled_signing', array($post_id)) > 0;
     }
 
     /**

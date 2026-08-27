@@ -27,7 +27,7 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
     /**
      * Set up before each test.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
         
         // Get scheduler instance
@@ -103,6 +103,7 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
             'post_author' => $user_id,
         ));
         $post = get_post($post_id);
+        $post->post_status = 'publish';
         
         // Process the post as a new publish
         $this->signing_service->process_post($post_id, $post, false);
@@ -134,6 +135,7 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
             'post_author' => $user_id,
         ));
         $post = get_post($post_id);
+        $post->post_status = 'publish';
         
         // Process the post as an update
         $this->signing_service->process_post($post_id, $post, true);
@@ -164,6 +166,8 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
             'post_author' => $user_id,
         ));
         $post = get_post($post_id);
+        $post->post_status = 'publish';
+        $post->post_date_gmt = gmdate('Y-m-d H:i:s');
         
         // Process the post
         $this->signing_service->process_post($post_id, $post, false);
@@ -208,6 +212,67 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
     }
 
     /**
+     * Test prepared signing data follows the current HTMLTrust wire format.
+     */
+    public function test_prepare_content_data_uses_origin_base64_and_direct_claims() {
+        $server_id = $this->create_test_server();
+        $user_id = $this->create_test_user(array(
+            'display_name' => 'Alice Example',
+        ));
+        $this->create_test_author(array(
+            'wp_user_id' => $user_id,
+            'server_id' => $server_id,
+            'default_claims' => array(
+                'License' => 'CC-BY-4.0',
+            ),
+        ));
+
+        $post_id = $this->create_test_post(array(
+            'post_author' => $user_id,
+            'post_content' => '<p>Read <a href="/about" aria-label="About HTMLTrust">about us</a>.</p>',
+        ));
+        update_post_meta($post_id, '_content_signing_claims', array(
+            'ContentType' => 'Article',
+        ));
+
+        $content_data = $this->invoke_prepare_content_data(get_post($post_id));
+
+        $this->assertMatchesRegularExpression('/^sha256:[A-Za-z0-9+\/]{43}$/', $content_data['contentHash']);
+        $this->assertStringNotContainsString('=', $content_data['contentHash']);
+        $this->assertEquals($this->expected_site_origin(), $content_data['domain']);
+        $this->assertEquals('Alice Example', $content_data['claims']['author']);
+        $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $content_data['claims']['signed-at']);
+        $this->assertEquals('Article', $content_data['claims']['claim:ContentType']);
+        $this->assertEquals('CC-BY-4.0', $content_data['claims']['claim:License']);
+    }
+
+    /**
+     * Test signed semantic attributes affect the content hash.
+     */
+    public function test_prepare_content_data_covers_signed_semantic_attributes() {
+        $server_id = $this->create_test_server();
+        $user_id = $this->create_test_user();
+        $this->create_test_author(array(
+            'wp_user_id' => $user_id,
+            'server_id' => $server_id,
+        ));
+
+        $first_post_id = $this->create_test_post(array(
+            'post_author' => $user_id,
+            'post_content' => '<p><a href="/one" aria-label="Read more">Read more</a></p>',
+        ));
+        $second_post_id = $this->create_test_post(array(
+            'post_author' => $user_id,
+            'post_content' => '<p><a href="/two" aria-label="Read more">Read more</a></p>',
+        ));
+
+        $first = $this->invoke_prepare_content_data(get_post($first_post_id));
+        $second = $this->invoke_prepare_content_data(get_post($second_post_id));
+
+        $this->assertNotEquals($first['contentHash'], $second['contentHash']);
+    }
+
+    /**
      * Test sign_post method with missing post.
      */
     public function test_sign_post_missing_post() {
@@ -232,6 +297,37 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
         // Verify result
         $this->assertFalse($result['success']);
         $this->assertEquals('Author does not have a signing profile.', $result['message']);
+    }
+
+    /**
+     * Invoke private prepare_content_data for focused format assertions.
+     *
+     * @param WP_Post $post The post.
+     * @return array        Prepared content data.
+     */
+    private function invoke_prepare_content_data($post) {
+        $method = new ReflectionMethod($this->signing_service, 'prepare_content_data');
+        $method->setAccessible(true);
+
+        return $method->invoke($this->signing_service, $post);
+    }
+
+    /**
+     * Get the expected serialized origin for the test site.
+     *
+     * @return string The serialized origin.
+     */
+    private function expected_site_origin() {
+        $parts = wp_parse_url(get_site_url());
+        $scheme = isset($parts['scheme']) ? strtolower($parts['scheme']) : 'https';
+        $host = isset($parts['host']) ? strtolower($parts['host']) : '';
+        $origin = $scheme . '://' . $host;
+
+        if (isset($parts['port']) && !(($scheme === 'http' && intval($parts['port']) === 80) || ($scheme === 'https' && intval($parts['port']) === 443))) {
+            $origin .= ':' . intval($parts['port']);
+        }
+
+        return $origin;
     }
 
     /**
@@ -381,6 +477,7 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
         
         // Verify hash format
         $this->assertStringStartsWith('sha256:', $hash);
-        $this->assertEquals(71, strlen($hash)); // 'sha256:' + 64 characters for SHA-256 hash
+        $this->assertMatchesRegularExpression('/^sha256:[A-Za-z0-9+\/]{43}$/', $hash);
+        $this->assertStringNotContainsString('=', $hash);
     }
 }

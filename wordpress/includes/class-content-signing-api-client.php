@@ -132,6 +132,46 @@ class ContentSigning_API_Client {
     }
 
     /**
+     * Identifier shape: opaque tokens (object ids, slugs, key ids).
+     */
+    const IDENTIFIER_PATTERN = '/^[A-Za-z0-9._~-]{1,128}$/';
+
+    /**
+     * Hash shape: an algorithm identifier, a colon, then unpadded Base64.
+     */
+    const HASH_PATTERN = '/^[A-Za-z0-9]{1,16}:[A-Za-z0-9+\/_-]{1,128}={0,2}$/';
+
+    /**
+     * Validate and encode a value for use as a single URL path segment.
+     *
+     * Identifiers reaching these methods come from the database and from API
+     * responses, so they are not guaranteed to be path-safe. Interpolated raw,
+     * a value containing "/", "..", "?" or "#" retargets the request at a
+     * different endpoint on the signing server; rawurlencode() confines it to
+     * one segment, and the pattern check rejects shapes that were never valid
+     * identifiers in the first place.
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    string    $value    The path segment value.
+     * @param    string    $pattern  The pattern the value must match.
+     * @param    string    $label    Human-readable name, used in the error.
+     * @return   string|WP_Error     The encoded segment, or WP_Error if unusable.
+     */
+    private function encode_path_segment($value, $pattern = self::IDENTIFIER_PATTERN, $label = 'identifier') {
+        if (!is_scalar($value)) {
+            return new WP_Error('invalid_identifier', sprintf('Invalid %s.', $label));
+        }
+
+        $value = trim((string) $value);
+        if ($value === '' || !preg_match($pattern, $value)) {
+            return new WP_Error('invalid_identifier', sprintf('Invalid %s.', $label));
+        }
+
+        return rawurlencode($value);
+    }
+
+    /**
      * Create a new author.
      *
      * @since    1.0.0
@@ -150,6 +190,11 @@ class ContentSigning_API_Client {
      * @return   array|WP_Error          The API response or WP_Error on failure.
      */
     public function get_author($author_id) {
+        $author_id = $this->encode_path_segment($author_id, self::IDENTIFIER_PATTERN, 'author ID');
+        if (is_wp_error($author_id)) {
+            return $author_id;
+        }
+
         return $this->request("authors/{$author_id}", 'GET');
     }
 
@@ -163,6 +208,11 @@ class ContentSigning_API_Client {
      * @return   array|WP_Error          The API response or WP_Error on failure.
      */
     public function update_author($author_id, $author_data, $author_api_key) {
+        $author_id = $this->encode_path_segment($author_id, self::IDENTIFIER_PATTERN, 'author ID');
+        if (is_wp_error($author_id)) {
+            return $author_id;
+        }
+
         return $this->request("authors/{$author_id}", 'PUT', $author_data, $author_api_key, 'author');
     }
 
@@ -174,6 +224,11 @@ class ContentSigning_API_Client {
      * @return   array|WP_Error          The API response or WP_Error on failure.
      */
     public function get_author_public_key($author_id) {
+        $author_id = $this->encode_path_segment($author_id, self::IDENTIFIER_PATTERN, 'author ID');
+        if (is_wp_error($author_id)) {
+            return $author_id;
+        }
+
         return $this->request("authors/{$author_id}/public-key", 'GET');
     }
 
@@ -219,6 +274,11 @@ class ContentSigning_API_Client {
      * @return   array|WP_Error         The API response or WP_Error on failure.
      */
     public function get_claim_type($claim_id) {
+        $claim_id = $this->encode_path_segment($claim_id, self::IDENTIFIER_PATTERN, 'claim ID');
+        if (is_wp_error($claim_id)) {
+            return $claim_id;
+        }
+
         return $this->request("claims/{$claim_id}", 'GET');
     }
 
@@ -241,6 +301,11 @@ class ContentSigning_API_Client {
      * @return   array|WP_Error       The API response or WP_Error on failure.
      */
     public function get_key_reputation($key_id) {
+        $key_id = $this->encode_path_segment($key_id, self::IDENTIFIER_PATTERN, 'key ID');
+        if (is_wp_error($key_id)) {
+            return $key_id;
+        }
+
         return $this->request("directory/keys/{$key_id}/reputation", 'GET');
     }
 
@@ -264,6 +329,13 @@ class ContentSigning_API_Client {
      * @return   array|WP_Error             The API response or WP_Error on failure.
      */
     public function find_content_occurrences($content_hash, $params = array()) {
+        // A content hash is "algorithm:base64", and standard-alphabet Base64
+        // contains "/" -- rawurlencode() is what keeps it inside one segment.
+        $content_hash = $this->encode_path_segment($content_hash, self::HASH_PATTERN, 'content hash');
+        if (is_wp_error($content_hash)) {
+            return $content_hash;
+        }
+
         return $this->request("directory/content/{$content_hash}/occurrences", 'GET', $params);
     }
 }
