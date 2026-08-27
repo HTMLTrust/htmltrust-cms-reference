@@ -82,12 +82,15 @@ composer test
 
 ## The HTML Protocol
 
-Signed content is embedded using data attributes that the browser extension recognizes:
+Signed content is embedded with a `<signed-section>` wrapper around the actual signed content:
 
 ```html
 <signed-section keyid="did:web:author.example"
     signature="BASE64_SIG" algorithm="ed25519"
-    content-hash="sha256:abc123...">
+    content-hash="sha256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU">
+  <meta name="author" content="Alice Example">
+  <meta name="signed-at" content="2026-05-01T10:30:00Z">
+  <meta name="claim:ContentType" content="Article">
   <article>
     <h1>Verifiable Web Content</h1>
     <p>Content should be provable...</p>

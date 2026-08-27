@@ -139,7 +139,7 @@ Stores details about each signature generated.
 | signing_author_id | VARCHAR | External author ID |
 | wp_user_id | BIGINT | WordPress user ID |
 | content_hash | VARCHAR | Content hash |
-| domain | VARCHAR | Domain |
+| domain | VARCHAR | Serialized Web origin stored in the legacy-named API field |
 | signature | TEXT | Signature data |
 | claims_json | TEXT | Claims as JSON |
 | status | VARCHAR | Signature status |

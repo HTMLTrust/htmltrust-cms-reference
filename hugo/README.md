@@ -4,9 +4,9 @@ This directory contains tools for integrating HTMLTrust content signing with [Hu
 
 ## How It Works
 
-A Hugo partial computes SHA-256 content hashes and outputs `<signed-section>` elements during the normal `hugo build` — no post-processing or external tools required for content hashing.
+A Hugo partial wraps page content in `<signed-section>` and emits direct child claim metadata during the normal `hugo build`.
 
-For full cryptographic signing (binding content to an author's private key via a trust directory), an optional post-build script can fill in `signature` and `keyid` attributes by calling the API.
+For content hashing and full cryptographic signing (binding content to an author's private key via a trust directory), run the post-build script. The script computes the spec wire hash as `sha256:<unpadded standard Base64>`, fills in `signature` and `keyid`, and preserves the signed wrapper.
 
 ## Quick Start
 
@@ -51,15 +51,16 @@ htmltrust:
 hugo --minify
 ```
 
-That's it. Every page with `htmltrust.sign: true` will have its content wrapped in a `<signed-section>` element with:
-- `content-hash` — SHA-256 hash of the canonicalized content
+Every page with `htmltrust.sign: true` will have its content wrapped in a `<signed-section>` element with:
 - Inner `<meta>` tags for author, timestamp, and claims
 - The actual page content
+
+Run the post-build script to add the required `content-hash`, `signature`, `keyid`, and `algorithm` attributes.
 
 ## What Gets Generated
 
 ```html
-<signed-section content-hash="sha256:abc123..." style="display: block;">
+<signed-section>
   <meta name="author" content="Jason Grey">
   <meta name="signed-at" content="2025-05-12T10:30:00Z">
   <meta name="claim:ContentType" content="Article">
@@ -72,7 +73,7 @@ That's it. Every page with `htmltrust.sign: true` will have its content wrapped 
 
 ## Optional: API-Based Cryptographic Signing
 
-To add full cryptographic signatures (the `signature`, `keyid`, and `algorithm` attributes), use the post-build script after `hugo build`:
+To add spec-conformant content hashes and full cryptographic signatures, use the post-build script after `hugo build`:
 
 ```sh
 hugo --minify
@@ -85,10 +86,10 @@ This requires a running [HTMLTrust trust directory server](https://github.com/HT
 export HTMLTRUST_API_URL=http://localhost:3000
 export HTMLTRUST_AUTHOR_API_KEY=your_author_api_key
 export HTMLTRUST_AUTHOR_ID=your_author_id
-export HTMLTRUST_DOMAIN=yourdomain.com
+export HTMLTRUST_DOMAIN=https://yourdomain.com
 ```
 
-The script finds existing `<signed-section>` elements (already wrapping the content from the Hugo build) and adds the missing `signature`, `keyid`, and `algorithm` attributes.
+The script finds existing `<signed-section>` elements (already wrapping the content from the Hugo build) and adds or replaces the `content-hash`, `signature`, `keyid`, and `algorithm` attributes. If a page was not built with the partial, the script wraps the selected element instead of appending a detached marker.
 
 ## Files
 
@@ -104,10 +105,8 @@ hugo/
 
 ## Canonicalization
 
-The partial canonicalizes content by:
-1. Stripping all HTML tags (Hugo's `plainify`)
-2. Collapsing all whitespace to single spaces (`replaceRE`)
-3. Trimming leading/trailing whitespace (`strings.TrimSpace`)
-4. Computing SHA-256 hash (Hugo's `sha256`)
-
-This matches the canonicalization used by the WordPress plugin and browser extension.
+The post-build script canonicalizes content by:
+1. Excluding claim and executable elements such as `meta`, `script`, `style`, and `iframe`
+2. Including signed semantic attributes: `href`, `src`, `alt`, and `aria-label`
+3. Collapsing whitespace and computing a SHA-256 digest
+4. Encoding the digest as canonical unpadded standard Base64

@@ -4,7 +4,7 @@ This document specifies how content publishers embed cryptographic signatures in
 
 ## Overview
 
-Signed content uses the `<signed-section>` custom HTML element, as defined in the [HTMLTrust specification](https://github.com/HTMLTrust/htmltrust-spec). This element wraps or accompanies signed content and carries the cryptographic signature as attributes.
+Signed content uses the `<signed-section>` custom HTML element, as defined in the [HTMLTrust specification](https://github.com/HTMLTrust/htmltrust-spec). This element wraps the signed content and carries the cryptographic signature as attributes.
 
 ## The `<signed-section>` Element
 
@@ -16,7 +16,7 @@ Per spec §2.1, the wrapper element carries exactly four required attributes:
 |---|---|---|
 | `keyid` | Identifies the signer; resolved per the rules in **Identity and Key Resolution** below. May be a DID, a direct URL to a public key document, or a trust-directory reference. | `keyid="did:web:author.example"` |
 | `signature` | Base64-encoded (unpadded) cryptographic signature over the canonical binding string defined in **Signature Data Format** | `signature="aBcDeF123..."` |
-| `content-hash` | Hash of the canonicalized text content, prefixed with the hash algorithm | `content-hash="sha256:abc123def456..."` |
+| `content-hash` | Hash of the canonicalized content, prefixed with the hash algorithm and encoded as unpadded standard Base64 | `content-hash="sha256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"` |
 | `algorithm` | Signature algorithm. Required by the spec; implementations MAY default to `ed25519` when the attribute is omitted, but producers SHOULD always emit it explicitly. | `algorithm="ed25519"` |
 
 ### Optional Attributes
@@ -59,14 +59,14 @@ Custom claim types are permitted. The claim vocabulary is extensible.
 
 ## HTML Structure
 
-The `<signed-section>` element can either **wrap** the signed content:
+The `<signed-section>` element wraps the signed content:
 
 ```html
 <signed-section
     signature="BASE64_SIG"
     keyid="https://api.example.com/authors/123/public-key"
     algorithm="ed25519"
-    content-hash="sha256:abc123def456...">
+    content-hash="sha256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU">
   <meta name="author" content="Alice Example">
   <meta name="signed-at" content="2025-05-01T10:30:00Z">
   <meta name="claim:ContentType" content="Article">
@@ -79,26 +79,7 @@ The `<signed-section>` element can either **wrap** the signed content:
 </signed-section>
 ```
 
-Or appear as a **standalone marker** alongside content (e.g., when added by a CMS after the content):
-
-```html
-<article>
-  <h1>Verifiable Web Content</h1>
-  <p>This content is signed and verifiable.</p>
-</article>
-<signed-section
-    signature="BASE64_SIG"
-    keyid="https://api.example.com/authors/123/public-key"
-    algorithm="ed25519"
-    content-hash="sha256:abc123def456...">
-  <meta name="author" content="Alice Example">
-  <meta name="signed-at" content="2025-05-01T10:30:00Z">
-  <meta name="claim:ContentType" content="Article">
-  <meta name="claim:License" content="CC-BY-4.0">
-</signed-section>
-```
-
-Both forms are valid. Verifying clients should handle either case.
+CMS integrations should not emit a detached `<signed-section>` containing only metadata. Compatibility UI such as badges and verification buttons should live outside the signed section.
 
 ## Identity and Key Resolution
 
@@ -116,17 +97,18 @@ User agents MAY cache resolved keys (with appropriate freshness and revocation h
 
 ## Canonical Content Extraction
 
-The hash that the signature covers is taken from the **text content** of the signed region, after the extraction and normalization process described below (spec §2.1). This is performed in two stages: HTML extraction, then text normalization.
+The hash that the signature covers is taken from the canonicalized signed region after extraction and normalization. The canonical content includes normalized text plus the signed semantic attributes `href`, `src`, `alt`, and `aria-label` when present on included elements.
 
 ### Stage 1: HTML extraction
 
 Given the inner contents of a `<signed-section>` element:
 
 1. **Strip excluded elements** entirely, including their text content: `<script>`, `<style>`, `<meta>`, `<link>`, `<head>`, `<noscript>`. (`<meta>` is excluded because, inside a signed-section, it carries claim metadata rather than signed content. Claim metadata is hashed separately into the `claims-hash` field.)
-2. **Insert a single space at every block-element boundary** (open and close tags of `<p>`, `<div>`, `<article>`, `<section>`, `<h1>`-`<h6>`, `<li>`, `<ul>`, `<ol>`, `<table>`, `<tr>`, `<td>`, `<th>`, `<header>`, `<footer>`, `<nav>`, `<main>`, `<aside>`, etc.) so that `<p>A</p><p>B</p>` extracts to `A B` and not `AB`. Inline elements (`<em>`, `<strong>`, `<a>`, `<span>`, etc.) do **not** introduce separators.
-3. **Strip all remaining markup** (inline tags and any attributes), preserving only the text content.
-4. **Decode HTML entities** (`&amp;`, `&lt;`, `&gt;`, named entities, numeric `&#nnn;` and `&#xhhhh;` entities).
-5. Pass the resulting string to text normalization.
+2. **Emit a line feed after every boundary-producing element** (`<p>`, `<div>`, `<article>`, `<section>`, `<h1>`-`<h6>`, `<li>`, `<ul>`, `<ol>`, `<table>`, `<tr>`, `<td>`, `<th>`, `<header>`, `<footer>`, `<nav>`, `<main>`, `<aside>`, etc.) so that `<p>A</p><p>B</p>` extracts to `A\nB` and not `AB`. The `br` element emits a line feed at its position. Inline elements (`<em>`, `<strong>`, `<a>`, `<span>`, etc.) do **not** introduce separators.
+3. **Include signed semantic attributes** on included elements in this order: `href`, `src`, `alt`, `aria-label`. `href` and `src` are resolved against the signed document base URL and serialized as URLs; `alt` and `aria-label` use text normalization.
+4. **Strip all remaining markup**, preserving text content and the signed attribute records.
+5. **Decode HTML entities** (`&amp;`, `&lt;`, `&gt;`, named entities, numeric `&#nnn;` and `&#xhhhh;` entities).
+6. Pass text and claim values to text normalization.
 
 ### Stage 2: Text normalization
 
@@ -141,16 +123,15 @@ The HTMLTrust canonicalization library applies, in order:
 
 The output is a UTF-8 string. Hashing produces `sha256:<base64>` where `<base64>` is the unpadded Base64 encoding of the 32-byte SHA-256 digest.
 
-**What is NOT covered by the hash.** Only the text content is hashed. HTML markup, element types, attributes (including `href`, `src`, `class`, `style`), and surrounding media are not part of the canonical content. This is a deliberate scoping choice; see **Text-only scope** below for the rationale and how HTMLTrust addresses the resulting semantic gaps through its layered design.
+**What is NOT covered by the hash.** Full markup, element types, layout attributes, classes, inline styles, and most ARIA attributes are not part of the canonical content. The current signed attribute set is deliberately small and covers `href`, `src`, `alt`, and `aria-label`.
 
 The reference implementation lives in the `@htmltrust/canonicalization` library, with byte-identical bindings for JavaScript, Go, PHP, Python, and Rust.
 
-### Text-only scope
+### Signed-content scope
 
-The canonicalization hashes **text content only**, not the HTML markup or attributes that surround it. This means an adversary with possession of signed text MAY:
+The canonicalization hashes normalized text plus the small signed semantic attribute set, not the full HTML structure. This means an adversary with possession of signed content MAY:
 
 - Rewrap the text in misleading block elements (e.g., change an `<h1>` to a `<del>` strikethrough)
-- Alter link destinations (`href` values) on `<a>` elements surrounding the signed text
 - Introduce, remove, or swap images and other media around the signed text
 
 These are **semantic integrity concerns**, not cryptographic ones. HTMLTrust addresses them through a layered design:
@@ -160,7 +141,7 @@ These are **semantic integrity concerns**, not cryptographic ones. HTMLTrust add
 
 The layered design keeps cryptographic verification simple and portable across language implementations, while delegating semantic-integrity detection to the research ecosystem where it can evolve without breaking existing signatures.
 
-**Open design question**: a future revision MAY extend the hash to cover particularly meaningful attributes, especially `href` on `<a>` elements (since link-swap within the original publication origin is a phishing vector that domain-binding and research cannot address alone). Feedback on which attributes to cover is explicitly welcome.
+Future revisions MAY extend the signed attribute list. Verifiers for this revision use exactly `href`, `src`, `alt`, and `aria-label`.
 
 ## Signature Data Format
 
@@ -172,17 +153,17 @@ The signature binds four values, concatenated with `:` separators:
 
 - `content-hash` — hash of the canonicalized text content (see above)
 - `claims-hash` — SHA-256 hash of the canonical serialization of all inner `<meta>` claim elements, ordered lexically by name (ensures tamper-evident claim metadata)
-- `domain` — the origin where the content is authoritatively published (anti-theft binding)
+- `domain` — the serialized Web origin where the content is authoritatively published, using the legacy field name retained by the protocol
 - `signed-at` — the ISO-8601 timestamp from the `<meta name="signed-at">` element
 
 For example:
 ```
-sha256:RAyBCvKT...:sha256:eFgHiJkL...:example.com:2025-05-01T10:30:00Z
+sha256:RAyBCvKT...:sha256:eFgHiJkL...:https://example.com:2025-05-01T10:30:00Z
 ```
 
 The author's identity is **not** included in the binding because it is implicit in the keyid resolution step: any attempt to claim a signature under a different identity would resolve to a different public key and fail verification. This string is signed with the author's private key using the algorithm declared in the `algorithm` attribute.
 
-**Hash encoding (open feedback)**: hashes are encoded as unpadded Base64, which is shorter than hexadecimal by roughly one-third. Community feedback on alternative encodings (hex, Base32) for ecosystem alignment is welcome.
+Hashes and signatures are encoded as canonical unpadded standard Base64. This is not hex and not base64url.
 
 ## Verification Flow
 

@@ -6,31 +6,47 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege: this workflow only reads the repo and uploads artifacts.
+permissions:
+  contents: read
+
 jobs:
   wordpress:
     name: WordPress Plugin
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
         with:
           php-version: "8.3"
           extensions: intl, mbstring, mysqli
           tools: composer
 
-      - name: Configure private dep access
-        env:
-          TOKEN: ${{ secrets.HTMLTRUST_PKG_TOKEN }}
-        run: |
-          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-          composer config --global github-oauth.github.com "${TOKEN}"
-
+      # The package token used to be written to ~/.gitconfig and to composer's
+      # global auth.json, where every later step -- including any composer
+      # plugin or lifecycle script -- could read it back. It is now passed
+      # through COMPOSER_AUTH and GIT_CONFIG_*, which are scoped to this
+      # process tree and never persisted to disk. --no-scripts and --no-plugins
+      # stop third-party install hooks (dealerdirect/phpcodesniffer-composer-
+      # installer among them) from running while the token is in the
+      # environment; vendor/ is excluded from the packaged zip below, so
+      # nothing downstream depends on those hooks having run.
+      #
+      # HTMLTRUST_PKG_TOKEN must be a fine-grained PAT scoped to the
+      # HTMLTrust/htmltrust-canonicalization repository with Contents: Read and
+      # nothing else. A classic `repo`-scoped token grants write access to every
+      # repo the owner can reach and must not be used here.
       - name: Install dependencies
         working-directory: wordpress
-        run: composer install --no-interaction --prefer-dist
+        env:
+          COMPOSER_AUTH: '{"github-oauth":{"github.com":"${{ secrets.HTMLTRUST_PKG_TOKEN }}"}}'
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.HTMLTRUST_PKG_TOKEN }}@github.com/.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/
+        run: composer install --no-interaction --prefer-dist --no-scripts --no-plugins
 
       - name: Package plugin
         run: |
@@ -39,7 +55,7 @@ jobs:
           zip -r ../dist/htmltrust-wordpress-plugin.zip . \
             -x "vendor/*" "tests/*" "bin/*" "composer.lock" "phpunit.xml"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wordpress-plugin
           path: dist/htmltrust-wordpress-plugin.zip
@@ -48,7 +64,9 @@ jobs:
     name: Hugo Integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Verify Hugo partials syntax
         run: |
@@ -57,7 +75,7 @@ jobs:
           test -s hugo/layouts/partials/htmltrust-meta.html && echo "  ✓ htmltrust-meta.html"
           test -s hugo/scripts/sign-site.mjs && echo "  ✓ sign-site.mjs"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: hugo-integration
           path: |
