@@ -1,16 +1,44 @@
 # HTMLTrust CMS Reference
 
-Reference CMS plugin for server-side content signing with HTMLTrust. Embeds cryptographic signatures into published content so that browsers and crawlers can verify authorship and integrity.
+Reference WordPress and Hugo integrations for HTMLTrust content signing. They prepare published content for canonical hashing and embed signatures that browsers and crawlers can verify.
 
 This is a companion to the [HTMLTrust specification](https://github.com/HTMLTrust/htmltrust-spec).
+
+## Current status
+
+The WordPress plugin and Hugo build integration are runnable. Drupal, Joomla, and Craft integrations are planned but have no code in this repository yet.
+
+## WordPress prerequisites
+
+- WordPress 5.0+
+- PHP 7.2+
+- PHP Intl extension
+- Composer
+- A running [HTMLTrust trust directory server](https://github.com/HTMLTrust/htmltrust-server-reference)
+
+## Quick start
+
+### WordPress
+
+```sh
+cd wordpress/
+composer install
+```
+
+Symlink the `wordpress/` directory into `wp-content/plugins/`, or zip it and install it through the WordPress admin. Configure a server profile, link a WordPress user to a registered author identity, and enable signing for the post types you want to publish.
+
+### Hugo
+
+Copy the partials from `hugo/layouts/partials/` into your Hugo project, then follow the [Hugo integration guide](hugo/README.md) to wrap selected pages and run the optional post-build signer.
 
 ## What It Does
 
 When an author publishes content, the plugin:
 
-- **Normalizes** the content (strips markup, collapses whitespace) and computes a SHA-256 content hash
-- **Signs** the hash via the HTMLTrust trust directory API using the author's private key
-- **Embeds** the signature, author public key reference, and content hash into the published HTML
+- **Canonicalizes** rendered content, including signed semantic attributes, and computes a SHA-256 content hash
+- **Builds** direct-child claims, computes their canonical claims hash, and binds both hashes to the publication origin and signed-at timestamp
+- **Requests** a compatibility signature from the HTMLTrust trust directory using the configured author API credential; the server performs signing for the registered author identity
+- **Embeds** the signature, key reference, algorithm, content hash, signed-at claim, and direct-child claims into the published HTML
 - **Supports** multiple author profiles, endorser profiles, and claim metadata (content type, license, AI involvement, etc.)
 - **Displays** signature status on the frontend with verification controls
 
@@ -46,12 +74,6 @@ htmltrust-cms-reference/
 4. Refer to `docs/developer-guide.md` for integration patterns
 
 ## WordPress Plugin
-
-### Prerequisites
-
-- WordPress 5.0+
-- PHP 7.2+
-- A running [HTMLTrust trust directory server](https://github.com/HTMLTrust/htmltrust-server-reference)
 
 ### Installation
 

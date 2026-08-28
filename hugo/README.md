@@ -75,6 +75,8 @@ Run the post-build script to add the required `content-hash`, `signature`, `keyi
 
 To add spec-conformant content hashes and full cryptographic signatures, use the post-build script after `hugo build`:
 
+Copy `scripts/sign-site.mjs` from this integration into your Hugo project's `scripts/` directory first. The script uses only Node.js built-ins and needs no package install.
+
 ```sh
 hugo --minify
 node scripts/sign-site.mjs --dir public
@@ -96,10 +98,10 @@ The script finds existing `<signed-section>` elements (already wrapping the cont
 ```
 hugo/
 ├── layouts/partials/
-│   ├── htmltrust-signed-section.html   # Core: computes hash, outputs <signed-section>
+│   ├── htmltrust-signed-section.html   # Wraps selected content in <signed-section>
 │   └── htmltrust-meta.html             # Optional: emits <meta> tags in <head>
 ├── scripts/
-│   └── sign-site.mjs                   # Optional: post-build API signing
+│   └── sign-site.mjs                   # Computes hashes and requests API signatures
 └── README.md
 ```
 
