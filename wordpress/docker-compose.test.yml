@@ -1,0 +1,40 @@
+services:
+  db:
+    image: mariadb:11.8.2@sha256:2bcbaec92bd9d4f6591bc8103d3a8e6d0512ee2235506e47a2e129d190444405
+    environment:
+      MARIADB_DATABASE: wordpress_test
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+      MARIADB_ROOT_PASSWORD: root
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h 127.0.0.1 -u root -proot --silent"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  test:
+    build:
+      context: ..
+      dockerfile: wordpress/docker/test.Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_NAME: wordpress_test
+      DB_USER: wordpress
+      DB_PASS: wordpress
+      DB_HOST: db
+      WP_VERSION: 6.9.4
+      WP_TESTS_DIR: /var/lib/wordpress-test-assets/tests
+      WP_CORE_DIR: /var/lib/wordpress-test-assets/wordpress
+      RUN_PHPCS: "${RUN_PHPCS:-0}"
+    init: true
+    volumes:
+      - ..:/workspace:ro
+      - composer_vendor:/workspace/wordpress/vendor
+      - wordpress_test_assets:/var/lib/wordpress-test-assets
+    working_dir: /workspace/wordpress
+
+volumes:
+  composer_vendor:
+  wordpress_test_assets:

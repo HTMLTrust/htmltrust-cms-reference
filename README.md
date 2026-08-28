@@ -11,10 +11,15 @@ The WordPress plugin and Hugo build integration are runnable. Drupal, Joomla, an
 ## WordPress prerequisites
 
 - WordPress 5.0+
-- PHP 7.2+
+- PHP 7.2+ at runtime
 - PHP Intl extension
 - Composer
 - A running [HTMLTrust trust directory server](https://github.com/HTMLTrust/htmltrust-server-reference)
+
+The plugin's Composer runtime constraint is PHP `>=7.2`. Development and test
+dependencies are newer: the lock file currently resolves PHPUnit 9.6.34, which
+requires PHP `>=7.3`. The Docker test image uses PHP 8.3 as the supported test
+baseline.
 
 ## Quick start
 
@@ -95,6 +100,38 @@ Then either:
 5. Publish a post — it will be automatically signed
 
 ### Running Tests
+
+The reproducible test path needs Docker and Docker Compose v2. From the
+repository root, run:
+
+```sh
+./wordpress/bin/test-docker.sh
+```
+
+This builds a PHP 8.3 test image, starts MariaDB 11.8.2, waits for its health
+check, installs the exact Composer lock file, downloads the WordPress 6.9.4
+core and test suite into Docker-managed volumes, then runs PHPUnit.
+The image and database tags are pinned by digest. Generated WordPress assets
+and Composer dependencies stay in Docker volumes, so the command does not
+write build artifacts to `/tmp` or require a host PHP installation.
+
+Run the coding-standard check separately, or remove the cached test assets:
+
+```sh
+./wordpress/bin/test-docker.sh --lint
+./wordpress/bin/test-docker.sh --clean
+```
+
+The lock file resolves `htmltrust/canonicalization` v0.2.2. That is the
+currently supported compatibility release for this plugin and is the version
+covered by the Docker test path.
+
+The current checkout contains existing WordPress Coding Standards violations,
+so `--lint` reports a nonzero result after PHPUnit completes. Keeping that check
+explicit makes the default test command a reliable pass/fail signal for the
+55-test suite.
+
+### Manual test setup
 
 ```sh
 cd wordpress/

@@ -28,8 +28,8 @@
   },
   "scripts": {
     "test": "phpunit",
-    "phpcs": "phpcs --standard=WordPress",
-    "phpcbf": "phpcbf --standard=WordPress"
+    "phpcs": "phpcs --standard=WordPress content-signing.php includes admin public",
+    "phpcbf": "phpcbf --standard=WordPress content-signing.php includes admin public"
   },
   "config": {
     "allow-plugins": {

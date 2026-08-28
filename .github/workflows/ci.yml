@@ -60,6 +60,17 @@ jobs:
           name: wordpress-plugin
           path: dist/htmltrust-wordpress-plugin.zip
 
+  wordpress-tests:
+    name: WordPress PHPUnit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Run WordPress test suite
+        run: ./wordpress/bin/test-docker.sh
+
   hugo:
     name: Hugo Integration
     runs-on: ubuntu-latest
