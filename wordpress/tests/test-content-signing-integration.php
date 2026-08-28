@@ -51,7 +51,7 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         $user_id = $this->create_test_user();
         $author_id = $this->create_test_author(array(
             'wp_user_id' => $user_id,
-            'server_id' => $server_id,
+            'server_id' => 0,
         ));
         
         // Create a post
@@ -71,14 +71,9 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         // Verify a signature was created
         $signatures = $this->db->get_signatures_by_post_id($post_id);
         $this->assertCount(1, $signatures);
-        $this->assertEquals('signed', $signatures[0]->status);
+        $this->assertEquals('awaiting-local-signature', $signatures[0]->status);
         
-        // Verify the signature
-        $signature_id = $signatures[0]->signature_id;
-        $result = $this->signing_service->verify_post_signature($post_id, $signature_id);
-        
-        $this->assertTrue($result['success']);
-        $this->assertEquals('Signature verified successfully.', $result['message']);
+        $this->assertEquals('local-browser', $signatures[0]->signing_mode);
     }
 
     /**
@@ -92,7 +87,7 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         $user_id = $this->create_test_user();
         $author_id = $this->create_test_author(array(
             'wp_user_id' => $user_id,
-            'server_id' => $server_id,
+            'server_id' => 0,
         ));
         
         // Create a post
@@ -109,6 +104,10 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         
         // Verify the content_signing_scheduled_signing hook is registered
         $this->assertTrue(has_action('content_signing_scheduled_signing'));
+
+        // Key resolution must be registered independently of frontend asset
+        // enqueueing because verifiers call it from REST requests.
+        $this->assertTrue(has_action('rest_api_init'));
     }
 
     /**
@@ -147,7 +146,7 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         $user_id = $this->create_test_user();
         $author_id = $this->create_test_author(array(
             'wp_user_id' => $user_id,
-            'server_id' => $server_id,
+            'server_id' => 0,
         ));
         
         // Configure for scheduled signing
@@ -175,7 +174,7 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         // Verify a signature was created
         $signatures = $this->db->get_signatures_by_post_id($post_id);
         $this->assertCount(1, $signatures);
-        $this->assertEquals('signed', $signatures[0]->status);
+        $this->assertEquals('awaiting-local-signature', $signatures[0]->status);
         
         // Reset options
         update_option('content_signing_sign_on_publish', true);
@@ -193,7 +192,7 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         $user_id = $this->create_test_user();
         $author_id = $this->create_test_author(array(
             'wp_user_id' => $user_id,
-            'server_id' => $server_id,
+            'server_id' => 0,
         ));
         
         // Create endorser profiles
@@ -217,15 +216,11 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         ));
         wp_publish_post($post_id);
         
-        // Verify signatures were created (1 primary + 2 endorsements)
+        // Browser signing creates one queue entry. Endorsements cannot use a
+        // private key held by the remote trust server anymore.
         $signatures = $this->db->get_signatures_by_post_id($post_id);
-        $this->assertCount(3, $signatures);
-        
-        // Verify all signatures are valid
-        foreach ($signatures as $signature) {
-            $result = $this->signing_service->verify_post_signature($post_id, $signature->signature_id);
-            $this->assertTrue($result['success']);
-        }
+        $this->assertCount(1, $signatures);
+        $this->assertEquals('awaiting-local-signature', $signatures[0]->status);
         
         // Reset options
         update_option('content_signing_enable_endorsements', false);
@@ -284,7 +279,6 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
 
         $display = new ContentSigning_Display($this->db, $this->api_client);
         $method = new ReflectionMethod($display, 'get_signed_section_html');
-        $method->setAccessible(true);
         $html = $method->invoke($display, $this->db->get_signature($signature_id), '<p>Signed body</p>');
 
         $this->assertStringStartsWith('<signed-section ', $html);
@@ -305,12 +299,123 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         ));
         $display = new ContentSigning_Display($this->db, $this->api_client);
         $method = new ReflectionMethod($display, 'get_signed_section_html');
-        $method->setAccessible(true);
-
         $this->assertSame(
             '<p>Signed body</p>',
             $method->invoke($display, $this->db->get_signature($signature_id), '<p>Signed body</p>')
         );
+    }
+
+    /**
+     * Local signatures emit the frozen v1 profile, scope, and location.
+     */
+    public function test_public_rendering_emits_v1_local_attributes() {
+        $post_id = $this->create_test_post(array('post_content' => '<p>Signed body</p>'));
+        $signature_id = $this->create_test_signature(array(
+            'post_id' => $post_id,
+            'signing_mode' => 'local-browser',
+            'server_id' => 0,
+            'keyid' => 'https://example.org/wp-json/htmltrust/v1/keys/test-key',
+            'public_key' => str_repeat('A', 43),
+            'signature' => str_repeat('B', 86),
+            'api_response' => array(
+                'keyid' => 'https://example.org/wp-json/htmltrust/v1/keys/test-key',
+                'algorithm' => 'ed25519',
+                'profile' => 'htmltrust-signature-v1',
+                'scope' => 'url',
+                'location' => 'https://example.org/test-post',
+                'sourceURL' => 'https://example.org/test-post',
+                'payload' => '{}',
+            ),
+        ));
+        $display = new ContentSigning_Display($this->db, $this->api_client);
+        $method = new ReflectionMethod($display, 'get_signed_section_html');
+        $html = $method->invoke($display, $this->db->get_signature($signature_id), '<p>Signed body</p>');
+
+        $this->assertStringContainsString('profile="htmltrust-signature-v1"', $html);
+        $this->assertStringContainsString('signature-scope="url"', $html);
+        $this->assertStringNotContainsString(' scope="url"', $html);
+        $this->assertStringContainsString('location="https://example.org/test-post"', $html);
+    }
+
+    public function test_public_rendering_withholds_corrupt_local_v1_metadata() {
+        $post_id = $this->create_test_post(array('post_content' => '<p>Signed body</p>'));
+        foreach (array(
+            array('profile' => 'wrong-profile', 'scope' => 'url', 'location' => 'https://example.org/test-post', 'sourceURL' => 'https://example.org/test-post'),
+            array('profile' => 'htmltrust-signature-v1', 'scope' => 'origin', 'location' => 'https://example.org/test-post', 'sourceURL' => 'https://example.org/test-post'),
+            array('profile' => 'htmltrust-signature-v1', 'scope' => 'url', 'location' => '', 'sourceURL' => 'https://example.org/test-post'),
+            array('profile' => 'htmltrust-signature-v1', 'scope' => 'url', 'location' => 'https://example.org/test-post', 'sourceURL' => ''),
+        ) as $metadata) {
+            $signature_id = $this->create_test_signature(array(
+                'post_id' => $post_id,
+                'signing_mode' => 'local-browser',
+                'server_id' => 0,
+                'keyid' => 'https://example.org/wp-json/htmltrust/v1/keys/corrupt',
+                'public_key' => str_repeat('A', 43),
+                'signature' => str_repeat('B', 86),
+                'api_response' => array_merge($metadata, array(
+                    'keyid' => 'https://example.org/wp-json/htmltrust/v1/keys/corrupt',
+                    'algorithm' => 'ed25519',
+                    'payload' => '{}',
+                )),
+            ));
+            $display = new ContentSigning_Display($this->db, $this->api_client);
+            $method = new ReflectionMethod($display, 'get_signed_section_html');
+            $html = $method->invoke($display, $this->db->get_signature($signature_id), '<p>Signed body</p>');
+            $this->assertStringNotContainsString('<signed-section', $html);
+            $this->db->delete_signature($signature_id);
+        }
+    }
+
+    /**
+     * A late content filter cannot leave a stale local wrapper on the page.
+     */
+    public function test_public_rendering_withholds_signature_after_late_mutation() {
+        update_option('siteurl', 'https://example.org');
+        update_option('home', 'https://example.org');
+        $server_id = $this->create_test_server();
+        $user_id = $this->create_test_user();
+        $this->create_test_author(array('wp_user_id' => $user_id, 'server_id' => 0));
+        $post_id = $this->create_test_post(array(
+            'post_author' => $user_id,
+            'post_content' => '<p>Signed body</p>',
+        ));
+        wp_set_current_user($user_id);
+        $keyid = 'https://example.org/wp-json/htmltrust/v1/keys/late-filter';
+        $prepared = $this->signing_service->prepare_local_signing($post_id, $keyid);
+        $keypair = sodium_crypto_sign_keypair();
+        $public_key = sodium_crypto_sign_publickey($keypair);
+        $signature = sodium_crypto_sign_detached($prepared['data']['payload'], sodium_crypto_sign_secretkey($keypair));
+        $stored = $this->signing_service->complete_local_signing($post_id, array(
+            'prepareToken' => $prepared['data']['prepareToken'],
+            'keyid' => $keyid,
+            'publicKey' => rtrim(strtr(base64_encode($public_key), '+/', '-_'), '='),
+            'signature' => rtrim(strtr(base64_encode($signature), '+/', '-_'), '='),
+            'contentHash' => $prepared['data']['contentHash'],
+            'claimsHash' => $prepared['data']['claimsHash'],
+            'domain' => $prepared['data']['domain'],
+            'signedAt' => $prepared['data']['signedAt'],
+            'payload' => $prepared['data']['payload'],
+            'profile' => $prepared['data']['profile'],
+            'algorithm' => $prepared['data']['algorithm'],
+            'scope' => $prepared['data']['scope'],
+            'location' => $prepared['data']['location'],
+            'sourceURL' => $prepared['data']['sourceURL'],
+        ));
+        $this->assertTrue($stored['success']);
+
+        $display = $this->plugin->get_public()->get_display();
+        $late_filter = function ($content) {
+            return $content . '<p>Late filter mutation</p>';
+        };
+        add_filter('the_content', $late_filter, PHP_INT_MAX - 1);
+        add_filter('the_content', array($display, 'display_signature'), PHP_INT_MAX);
+        $this->go_to(get_permalink($post_id));
+        $rendered = apply_filters('the_content', '<p>Signed body</p>');
+        remove_filter('the_content', array($display, 'display_signature'), PHP_INT_MAX);
+        remove_filter('the_content', $late_filter, PHP_INT_MAX - 1);
+
+        $this->assertStringContainsString('Late filter mutation', $rendered);
+        $this->assertStringNotContainsString('<signed-section', $rendered);
     }
 
     /**
@@ -335,22 +440,13 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
             'post_author' => $user_id,
         ));
         
-        // Temporarily modify the mock API key to trigger an error
-        $original_key = $this->mock_api_key;
-        $this->mock_api_key = 'valid-key-but-not-matching';
-        
-        // Sign the post
+        // The legacy remote endpoint is intentionally disabled. The AJAX
+        // route remains for clients that need a deterministic error response.
+        $this->assertNotFalse(has_action('wp_ajax_content_signing_sign_post'));
         $result = $this->signing_service->sign_post($post_id);
-        
-        // Verify error handling
+
         $this->assertFalse($result['success']);
-        
-        // Verify signature record with error status
         $signatures = $this->db->get_signatures_by_post_id($post_id);
-        $this->assertCount(1, $signatures);
-        $this->assertEquals('error', $signatures[0]->status);
-        
-        // Restore original key
-        $this->mock_api_key = $original_key;
+        $this->assertCount(0, $signatures);
     }
 }

@@ -341,4 +341,18 @@ class Test_Content_Signing_DB extends ContentSigning_DB_TestCase {
         
         $this->assertCount(1, $remaining);
     }
+
+    public function test_local_public_key_lookup_ignores_pending_rows() {
+        $keyid = 'https://example.org/key/pending';
+        $signature_id = $this->create_test_signature(array(
+            'server_id' => 0,
+            'keyid' => $keyid,
+            'public_key' => 'pending-public-key',
+            'signing_mode' => 'local-browser',
+            'status' => 'awaiting-local-signature',
+        ));
+
+        $this->assertNotFalse($signature_id);
+        $this->assertNull($this->db->get_local_public_key_by_keyid($keyid));
+    }
 }

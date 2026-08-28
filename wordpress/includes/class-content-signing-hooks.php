@@ -120,6 +120,8 @@ class ContentSigning_Hooks {
         
         // AJAX handlers
         add_action('wp_ajax_content_signing_sign_post', array($this, 'ajax_sign_post'));
+        add_action('wp_ajax_content_signing_prepare_local_signing', array($this, 'ajax_prepare_local_signing'));
+        add_action('wp_ajax_content_signing_complete_local_signing', array($this, 'ajax_complete_local_signing'));
         add_action('wp_ajax_content_signing_verify_signature', array($this, 'ajax_verify_signature'));
         add_action('wp_ajax_content_signing_get_claim_types', array($this, 'ajax_get_claim_types'));
     }
@@ -234,9 +236,65 @@ class ContentSigning_Hooks {
             return;
         }
 
-        // Sign the post
-        $result = $this->signing_service->sign_post($post_id);
-        
+        wp_send_json_error(array(
+            'message' => 'Browser-local signing is required. Reload the editor and use the local signing flow.',
+            'code' => 'local_signing_required',
+        ));
+    }
+
+    /**
+     * Return the server-rendered payload for browser-local signing.
+     *
+     * @return void
+     */
+    public function ajax_prepare_local_signing() {
+        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+        if (!$post_id) {
+            wp_send_json_error(array('message' => 'Invalid post ID.'));
+            return;
+        }
+
+        check_ajax_referer('content_signing_post_' . $post_id, 'nonce');
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(array('message' => 'Permission denied.'));
+            return;
+        }
+
+        $keyid = isset($_POST['keyid']) ? wp_unslash((string) $_POST['keyid']) : '';
+        $result = $this->signing_service->prepare_local_signing($post_id, $keyid);
+        if ($result['success']) {
+            wp_send_json_success($result);
+        } else {
+            wp_send_json_error($result);
+        }
+    }
+
+    /**
+     * Verify and persist a browser-local signature.
+     *
+     * @return void
+     */
+    public function ajax_complete_local_signing() {
+        $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
+        if (!$post_id) {
+            wp_send_json_error(array('message' => 'Invalid post ID.'));
+            return;
+        }
+
+        check_ajax_referer('content_signing_post_' . $post_id, 'nonce');
+        if (!current_user_can('edit_post', $post_id)) {
+            wp_send_json_error(array('message' => 'Permission denied.'));
+            return;
+        }
+
+        $submitted = array();
+        foreach (array('prepareToken', 'keyid', 'publicKey', 'signature', 'signedAt', 'contentHash', 'claimsHash', 'domain', 'payload', 'profile', 'algorithm', 'scope', 'location', 'sourceURL') as $field) {
+            if (isset($_POST[$field])) {
+                $submitted[$field] = is_string($_POST[$field]) ? wp_unslash($_POST[$field]) : $_POST[$field];
+            }
+        }
+
+        $result = $this->signing_service->complete_local_signing($post_id, $submitted);
         if ($result['success']) {
             wp_send_json_success($result);
         } else {

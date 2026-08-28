@@ -126,7 +126,7 @@ class Test_Content_Signing_Scheduler extends ContentSigning_API_Client_TestCase 
         $user_id = $this->create_test_user();
         $author_id = $this->create_test_author(array(
             'wp_user_id' => $user_id,
-            'server_id' => $server_id,
+            'server_id' => 0,
         ));
         
         // Create a test post with the author
@@ -143,7 +143,7 @@ class Test_Content_Signing_Scheduler extends ContentSigning_API_Client_TestCase 
         // Verify a signature was created
         $signatures = $this->db->get_signatures_by_post_id($post_id);
         $this->assertCount(1, $signatures);
-        $this->assertEquals('signed', $signatures[0]->status);
+        $this->assertEquals('awaiting-local-signature', $signatures[0]->status);
     }
 
     /**

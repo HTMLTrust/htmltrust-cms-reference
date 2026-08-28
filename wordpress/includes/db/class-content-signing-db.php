@@ -348,12 +348,14 @@ class ContentSigning_DB {
         
         // Encrypt the API key. Refuse the write outright if encryption is
         // unavailable: storing an unencrypted key would be worse than failing.
-        if (!empty($data['author_api_key'])) {
-            $encrypted = $this->encrypt($data['author_api_key']);
-            if (null === $encrypted) {
-                return false;
+        if (array_key_exists('author_api_key', $data)) {
+            if (!empty($data['author_api_key'])) {
+                $encrypted = $this->encrypt($data['author_api_key']);
+                if (null === $encrypted) {
+                    return false;
+                }
+                $data['author_api_key_encrypted'] = $encrypted;
             }
-            $data['author_api_key_encrypted'] = $encrypted;
             unset($data['author_api_key']);
         }
 
@@ -381,12 +383,14 @@ class ContentSigning_DB {
         $data['updated_at'] = current_time('mysql');
         
         // Encrypt the API key if provided
-        if (!empty($data['author_api_key'])) {
-            $encrypted = $this->encrypt($data['author_api_key']);
-            if (null === $encrypted) {
-                return false;
+        if (array_key_exists('author_api_key', $data)) {
+            if (!empty($data['author_api_key'])) {
+                $encrypted = $this->encrypt($data['author_api_key']);
+                if (null === $encrypted) {
+                    return false;
+                }
+                $data['author_api_key_encrypted'] = $encrypted;
             }
-            $data['author_api_key_encrypted'] = $encrypted;
             unset($data['author_api_key']);
         }
 
@@ -505,7 +509,10 @@ class ContentSigning_DB {
      * @return   array    The site endorser profiles.
      */
     public function get_site_endorsers() {
-        return $this->get_authors(array('is_site_endorser' => 1));
+        $endorsers = $this->get_authors(array('is_site_endorser' => 1));
+        return array_values(array_filter($endorsers, function ($author) {
+            return (int) $author->server_id > 0;
+        }));
     }
 
     /**
@@ -526,6 +533,9 @@ class ContentSigning_DB {
             'content_hash' => '',
             'domain' => '',
             'signature' => '',
+            'keyid' => null,
+            'public_key' => null,
+            'signing_mode' => 'remote',
             'claims_json' => '{}',
             'status' => 'pending',
             'api_response_json' => null,
@@ -617,6 +627,36 @@ class ContentSigning_DB {
     }
 
     /**
+     * Find a local signature by its public key identifier.
+     *
+     * @param string $keyid Public key identifier.
+     * @return object|null Signature row or null.
+     */
+    public function get_local_signature_by_keyid($keyid) {
+        return $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT * FROM {$this->tables['signatures']} WHERE keyid = %s AND signing_mode = 'local-browser' AND status = 'signed' ORDER BY created_at ASC, signature_id ASC LIMIT 1",
+                $keyid
+            )
+        );
+    }
+
+    /**
+     * Get the immutable public key bound to a local key identifier.
+     *
+     * @param string $keyid Public key identifier.
+     * @return string|null Canonical SPKI DER Base64, or null when unseen.
+     */
+    public function get_local_public_key_by_keyid($keyid) {
+        return $this->wpdb->get_var(
+            $this->wpdb->prepare(
+                "SELECT public_key FROM {$this->tables['signatures']} WHERE keyid = %s AND signing_mode = 'local-browser' AND status = 'signed' AND public_key IS NOT NULL AND public_key <> '' ORDER BY created_at ASC, signature_id ASC LIMIT 1",
+                $keyid
+            )
+        );
+    }
+
+    /**
      * Get signatures for a post.
      *
      * @since    1.0.0
@@ -652,6 +692,21 @@ class ContentSigning_DB {
                  ORDER BY created_at ASC 
                  LIMIT %d",
                 $limit
+            )
+        );
+    }
+
+    /**
+     * Get the current browser-signing queue entry for a post.
+     *
+     * @param int $post_id Post ID.
+     * @return object|null Pending local signature or null.
+     */
+    public function get_pending_local_signature($post_id) {
+        return $this->wpdb->get_row(
+            $this->wpdb->prepare(
+                "SELECT * FROM {$this->tables['signatures']} WHERE post_id = %d AND signing_mode = 'local-browser' AND status = 'awaiting-local-signature' ORDER BY created_at DESC LIMIT 1",
+                $post_id
             )
         );
     }

@@ -7,6 +7,9 @@
  * @subpackage Content_Signing/public
  */
 
+use HTMLTrust\Canonicalization\Canonicalize;
+use HTMLTrust\Canonicalization\Signature;
+
 class ContentSigning_Display {
 
     /**
@@ -65,6 +68,13 @@ class ContentSigning_Display {
 
         $primary_signature = $this->get_primary_signature($signatures);
         if (!$primary_signature) {
+            return $content;
+        }
+
+        // The wrapper is the last content filter we control. Recompute the
+        // canonical bytes from exactly what reached this callback so a late
+        // filter cannot leave a stale signature on the page.
+        if (!$this->matches_stored_content_hash($primary_signature, $content, $post_id)) {
             return $content;
         }
 
@@ -185,6 +195,30 @@ class ContentSigning_Display {
         }
 
         return null;
+    }
+
+    /**
+     * Compare the rendered bytes with the hash captured during signing.
+     *
+     * @param object $signature Signature row.
+     * @param string $content   Filtered content passed to this callback.
+     * @param int    $post_id   Current post ID.
+     * @return bool Whether the content still matches.
+     */
+    private function matches_stored_content_hash($signature, $content, $post_id) {
+        $post = get_post($post_id);
+        if (!$post || !class_exists(Canonicalize::class)) {
+            return false;
+        }
+
+        try {
+            $canonical = Canonicalize::extractCanonicalText($content, false, get_permalink($post));
+        } catch (Exception $e) {
+            return false;
+        }
+
+        $hash = 'sha256:' . rtrim(base64_encode(hash('sha256', $canonical, true)), '=');
+        return hash_equals((string) $signature->content_hash, $hash);
     }
 
     /**
@@ -380,16 +414,62 @@ class ContentSigning_Display {
             return $content;
         }
 
+        $metadata = null;
+        if (isset($signature->signing_mode) && $signature->signing_mode === 'local-browser') {
+            $metadata = json_decode((string) $signature->api_response_json, true);
+            if (!$this->has_valid_local_v1_metadata($metadata, $key['keyid'])) {
+                return $content;
+            }
+        }
+
         $html = '<signed-section ';
         $html .= 'signature="' . esc_attr($signature->signature) . '" ';
         $html .= 'keyid="' . esc_attr($key['keyid']) . '" ';
         $html .= 'algorithm="' . esc_attr($key['algorithm']) . '" ';
         $html .= 'content-hash="' . esc_attr($signature->content_hash) . '">';
+
+        if (isset($signature->signing_mode) && $signature->signing_mode === 'local-browser') {
+            $html = '<signed-section ';
+            $html .= 'profile="' . esc_attr($metadata['profile']) . '" ';
+            $html .= 'signature-scope="' . esc_attr($metadata['scope']) . '" ';
+            $html .= 'location="' . esc_attr($metadata['location']) . '" ';
+            $html .= 'signature="' . esc_attr($signature->signature) . '" ';
+            $html .= 'keyid="' . esc_attr($key['keyid']) . '" ';
+            $html .= 'algorithm="' . esc_attr($key['algorithm']) . '" ';
+            $html .= 'content-hash="' . esc_attr($signature->content_hash) . '">';
+        }
         $html .= $this->get_claim_meta_html($signature);
         $html .= $content;
         $html .= '</signed-section>';
 
         return $html;
+    }
+
+    /**
+     * Validate the required metadata for a local v1 wrapper.
+     *
+     * @param array  $metadata Metadata stored with the signature.
+     * @param string $keyid    Resolved key identifier.
+     * @return bool Whether the metadata is complete and internally consistent.
+     */
+    private function has_valid_local_v1_metadata($metadata, $keyid) {
+        if (!is_array($metadata)
+            || isset($metadata['mode']) && $metadata['mode'] !== 'local-browser'
+            || ($metadata['profile'] ?? '') !== Signature::SIGNING_PROFILE_V1
+            || ($metadata['scope'] ?? '') !== 'url'
+            || empty($metadata['location'])
+            || empty($metadata['sourceURL'])
+            || ($metadata['keyid'] ?? '') !== $keyid
+            || ($metadata['algorithm'] ?? '') !== 'ed25519'
+            || empty($metadata['payload'])) {
+            return false;
+        }
+
+        try {
+            return Signature::deriveSigningLocationV1($metadata['sourceURL'], $metadata['scope']) === $metadata['location'];
+        } catch (Exception $e) {
+            return false;
+        }
     }
 
     /**
@@ -410,6 +490,16 @@ class ContentSigning_Display {
     private function get_key_metadata($signature) {
         $keyid = '';
         $algorithm = '';
+
+        // Local-browser signatures carry their key identifier in the
+        // signature row. Rendering must remain fully offline and must never
+        // turn a public page view into a trust-server request.
+        if (isset($signature->signing_mode) && $signature->signing_mode === 'local-browser') {
+            return array(
+                'keyid' => isset($signature->keyid) ? (string) $signature->keyid : '',
+                'algorithm' => 'ed25519',
+            );
+        }
 
         $api_response = json_decode($signature->api_response_json, true);
         if (is_array($api_response)) {

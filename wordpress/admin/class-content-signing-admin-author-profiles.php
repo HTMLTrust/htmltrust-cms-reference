@@ -142,21 +142,43 @@ class ContentSigning_Admin_AuthorProfiles {
         // Get and sanitize form data
         $wp_user_id = isset($_POST['wp_user_id']) ? intval($_POST['wp_user_id']) : 0;
         $signing_author_id = isset($_POST['signing_author_id']) ? sanitize_text_field($_POST['signing_author_id']) : '';
-        $server_id = isset($_POST['server_id']) ? intval($_POST['server_id']) : 0;
+        $server_id = isset($_POST['server_id']) ? intval($_POST['server_id']) : -1;
         $author_api_key = isset($_POST['author_api_key']) ? sanitize_text_field($_POST['author_api_key']) : '';
         $default_key_type = isset($_POST['default_key_type']) ? sanitize_text_field($_POST['default_key_type']) : 'HUMAN';
         $default_claims = isset($_POST['default_claims']) ? $this->sanitize_claims($_POST['default_claims']) : array();
         $is_site_endorser = isset($_POST['is_site_endorser']) ? 1 : 0;
         
-        // Validate required fields
-        if (!$wp_user_id || empty($signing_author_id) || !$server_id || empty($author_api_key)) {
+        if ($server_id === 0 && empty($signing_author_id) && $wp_user_id) {
+            $signing_author_id = $this->local_signing_author_id($wp_user_id);
+        }
+
+        // Remote profiles keep their existing required API credentials. A
+        // browser-local profile has no server credential and uses a concrete
+        // local identity derived from the linked WordPress user.
+        if (!$wp_user_id || $server_id < 0 || empty($signing_author_id) || ($server_id !== 0 && empty($author_api_key))) {
             add_settings_error(
                 'content_signing_author',
                 'required_fields',
-                __('All fields are required.', 'content-signing'),
+                __('WordPress user, author identity, and a remote server API key are required for remote profiles.', 'content-signing'),
                 'error'
             );
             return;
+        }
+
+        if ($server_id === 0 && $is_site_endorser) {
+            add_settings_error(
+                'content_signing_author',
+                'local_endorser',
+                __('Browser-local profiles cannot be site endorsers because endorsements require a remote server.', 'content-signing'),
+                'error'
+            );
+            return;
+        }
+
+        if ($server_id === 0) {
+            // Local profiles never persist remote credentials.
+            $author_api_key = '';
+            $is_site_endorser = 0;
         }
         
         // Check if user already has an author profile
@@ -209,18 +231,38 @@ class ContentSigning_Admin_AuthorProfiles {
         // Get and sanitize form data
         $author_profile_id = isset($_POST['author_profile_id']) ? intval($_POST['author_profile_id']) : 0;
         $signing_author_id = isset($_POST['signing_author_id']) ? sanitize_text_field($_POST['signing_author_id']) : '';
-        $server_id = isset($_POST['server_id']) ? intval($_POST['server_id']) : 0;
+        $server_id = isset($_POST['server_id']) ? intval($_POST['server_id']) : -1;
         $author_api_key = isset($_POST['author_api_key']) ? sanitize_text_field($_POST['author_api_key']) : '';
         $default_key_type = isset($_POST['default_key_type']) ? sanitize_text_field($_POST['default_key_type']) : 'HUMAN';
         $default_claims = isset($_POST['default_claims']) ? $this->sanitize_claims($_POST['default_claims']) : array();
         $is_site_endorser = isset($_POST['is_site_endorser']) ? 1 : 0;
         
-        // Validate required fields
-        if (!$author_profile_id || empty($signing_author_id) || !$server_id) {
+        $existing_author = $author_profile_id ? $this->db->get_author($author_profile_id) : null;
+        if ($existing_author && $server_id === 0 && empty($signing_author_id)) {
+            $signing_author_id = $this->local_signing_author_id($existing_author->wp_user_id);
+        }
+
+        // A remote profile may retain its existing key. Switching a local
+        // profile to a remote server requires a new remote credential.
+        $switching_to_remote_without_key = $existing_author
+            && (int) $existing_author->server_id === 0
+            && $server_id !== 0
+            && empty($author_api_key);
+        if (!$existing_author || $server_id < 0 || empty($signing_author_id) || $switching_to_remote_without_key) {
             add_settings_error(
                 'content_signing_author',
                 'required_fields',
-                __('Author profile ID, signing author ID, and server ID are required.', 'content-signing'),
+                __('Author profile, author identity, and a remote server API key are required when using a remote profile.', 'content-signing'),
+                'error'
+            );
+            return;
+        }
+
+        if ($server_id === 0 && $is_site_endorser) {
+            add_settings_error(
+                'content_signing_author',
+                'local_endorser',
+                __('Browser-local profiles cannot be site endorsers because endorsements require a remote server.', 'content-signing'),
                 'error'
             );
             return;
@@ -234,6 +276,11 @@ class ContentSigning_Admin_AuthorProfiles {
             'default_claims' => $default_claims,
             'is_site_endorser' => $is_site_endorser,
         );
+
+        if ($server_id === 0) {
+            $data['author_api_key_encrypted'] = '';
+            $data['is_site_endorser'] = 0;
+        }
         
         // Only update API key if provided
         if (!empty($author_api_key)) {
@@ -500,7 +547,7 @@ class ContentSigning_Admin_AuthorProfiles {
         
         <?php if (!$is_edit) : ?>
             <div class="notice notice-info">
-                <p><?php _e('You can either add an existing author from the API or create a new one.', 'content-signing'); ?></p>
+                <p><?php _e('Choose Browser-local only for editor signing without a trust directory. Remote profiles remain available for legacy API identities.', 'content-signing'); ?></p>
                 <p><a href="#create-api-author" class="button"><?php _e('Create New API Author', 'content-signing'); ?></a></p>
             </div>
         <?php endif; ?>
@@ -547,12 +594,12 @@ class ContentSigning_Admin_AuthorProfiles {
                         </th>
                         <td>
                             <select name="server_id" id="server_id" class="regular-text" required>
-                                <option value=""><?php _e('Select a server', 'content-signing'); ?></option>
+                                <option value="0" <?php selected(!$is_edit || (int) $author->server_id === 0); ?>><?php _e('Browser-local only', 'content-signing'); ?></option>
                                 <?php foreach ($servers as $server) : ?>
                                     <option value="<?php echo esc_attr($server->server_id); ?>" <?php selected($is_edit && $author->server_id == $server->server_id); ?>><?php echo esc_html($server->name); ?></option>
                                 <?php endforeach; ?>
                             </select>
-                            <p class="description"><?php _e('The server to use for this author.', 'content-signing'); ?></p>
+                            <p class="description"><?php _e('Browser-local only keeps the signing key in the author browser and requires no API key. Select a remote server for a legacy API profile.', 'content-signing'); ?></p>
                         </td>
                     </tr>
                     <tr>
@@ -560,8 +607,8 @@ class ContentSigning_Admin_AuthorProfiles {
                             <label for="signing_author_id"><?php _e('Signing Author ID', 'content-signing'); ?></label>
                         </th>
                         <td>
-                            <input name="signing_author_id" type="text" id="signing_author_id" value="<?php echo $is_edit ? esc_attr($author->signing_author_id) : ''; ?>" class="regular-text" required>
-                            <p class="description"><?php _e('The author ID from the Content Signing API.', 'content-signing'); ?></p>
+                            <input name="signing_author_id" type="text" id="signing_author_id" value="<?php echo $is_edit ? esc_attr($author->signing_author_id) : ''; ?>" class="regular-text">
+                            <p class="description"><?php _e('Remote profiles use the author ID from the Content Signing API. Browser-local profiles may leave this blank and use local-wp-user-{ID}.', 'content-signing'); ?></p>
                         </td>
                     </tr>
                     <tr>
@@ -569,13 +616,13 @@ class ContentSigning_Admin_AuthorProfiles {
                             <label for="author_api_key"><?php _e('Author API Key', 'content-signing'); ?></label>
                         </th>
                         <td>
-                            <input name="author_api_key" type="password" id="author_api_key" value="" class="regular-text" <?php echo $is_edit ? '' : 'required'; ?>>
+                            <input name="author_api_key" type="password" id="author_api_key" value="" class="regular-text">
                             <p class="description">
                                 <?php 
                                 if ($is_edit) {
-                                    _e('Leave blank to keep the current API key.', 'content-signing');
+                                    _e('Leave blank to keep the current remote API key or when using Browser-local only.', 'content-signing');
                                 } else {
-                                    _e('The author-specific API key from the Content Signing API.', 'content-signing');
+                                    _e('Required for a remote server. Leave blank for Browser-local only.', 'content-signing');
                                 }
                                 ?>
                             </p>
@@ -612,10 +659,10 @@ class ContentSigning_Admin_AuthorProfiles {
                             <fieldset>
                                 <legend class="screen-reader-text"><?php _e('Site Endorser', 'content-signing'); ?></legend>
                                 <label for="is_site_endorser">
-                                    <input name="is_site_endorser" type="checkbox" id="is_site_endorser" value="1" <?php checked($is_edit && $author->is_site_endorser); ?>>
+                                    <input name="is_site_endorser" type="checkbox" id="is_site_endorser" value="1" <?php checked($is_edit && $author->is_site_endorser); ?> <?php disabled($is_edit && (int) $author->server_id === 0); ?>>
                                     <?php _e('Mark as site endorser', 'content-signing'); ?>
                                 </label>
-                                <p class="description"><?php _e('When enabled, this author can be used for site-wide endorsements.', 'content-signing'); ?></p>
+                                <p class="description"><?php _e('Remote profiles can be used for site-wide endorsements. Browser-local profiles cannot endorse because endorsement signing is disabled.', 'content-signing'); ?></p>
                             </fieldset>
                         </td>
                     </tr>
@@ -780,7 +827,7 @@ class ContentSigning_Admin_AuthorProfiles {
                         $user = get_userdata($author->wp_user_id);
                         $display_name = $user ? $user->display_name : __('Unknown User', 'content-signing');
                         $server = $this->db->get_server($author->server_id);
-                        $server_name = $server ? $server->name : __('Unknown Server', 'content-signing');
+                        $server_name = (int) $author->server_id === 0 ? __('Browser-local only', 'content-signing') : ($server ? $server->name : __('Unknown Server', 'content-signing'));
                     ?>
                         <tr>
                             <td><?php echo esc_html($display_name); ?></td>
@@ -818,7 +865,7 @@ class ContentSigning_Admin_AuthorProfiles {
                 <td>
                     <?php if ($author) : 
                         $server = $this->db->get_server($author->server_id);
-                        $server_name = $server ? $server->name : __('Unknown Server', 'content-signing');
+                        $server_name = (int) $author->server_id === 0 ? __('Browser-local only', 'content-signing') : ($server ? $server->name : __('Unknown Server', 'content-signing'));
                     ?>
                         <p>
                             <?php _e('Signing Author ID:', 'content-signing'); ?> <strong><?php echo esc_html($author->signing_author_id); ?></strong><br>
@@ -884,6 +931,16 @@ class ContentSigning_Admin_AuthorProfiles {
         }
         
         return $sanitized;
+    }
+
+    /**
+     * Derive the stable local identity used by a browser-local profile.
+     *
+     * @param int $wp_user_id WordPress user ID.
+     * @return string Local signing author identity.
+     */
+    private function local_signing_author_id($wp_user_id) {
+        return 'local-wp-user-' . (int) $wp_user_id;
     }
 
     /**

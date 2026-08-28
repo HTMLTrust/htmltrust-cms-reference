@@ -1,5 +1,5 @@
-# The digest pins the multi-platform index for PHP 8.3 on Debian Bookworm.
-FROM php:8.3-cli-bookworm@sha256:177529735599a8244b2c903522f029839dce1c2ac4be122fdc00ada4b45a20e4
+# The digest pins the multi-platform index for PHP 8.5 on Debian Bookworm.
+FROM php:8.5-cli-bookworm@sha256:398d3816875b7209aad6982d52c16b4e073ccda6adb40fce7a6f44dd47b6b84f
 
 # Composer is copied from its pinned official image. The PHP extensions match
 # the plugin's runtime and the tools used by install-wp-tests.sh.

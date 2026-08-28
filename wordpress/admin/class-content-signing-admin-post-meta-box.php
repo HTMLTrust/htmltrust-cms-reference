@@ -83,6 +83,8 @@ class ContentSigning_Admin_PostMetaBox {
         // Check if the post author has a signing profile
         $author_profile = $this->db->get_author_by_wp_user_id($post->post_author);
         $has_author_profile = $author_profile !== null;
+        $is_local_profile = $has_author_profile && (int) $author_profile->server_id === 0;
+        $is_post_author = get_current_user_id() > 0 && (int) get_current_user_id() === (int) $post->post_author;
         
         // Get global signing settings
         $enable_signing = get_option('content_signing_enable_signing', true);
@@ -116,7 +118,7 @@ class ContentSigning_Admin_PostMetaBox {
                             $user = get_userdata($signature->wp_user_id);
                             $user_name = $user ? $user->display_name : __('Unknown User', 'content-signing');
                             $server = $this->db->get_server($signature->server_id);
-                            $server_name = $server ? $server->name : __('Unknown Server', 'content-signing');
+                            $server_name = (int) $signature->server_id === 0 ? __('Browser-local only', 'content-signing') : ($server ? $server->name : __('Unknown Server', 'content-signing'));
                             $status_class = $signature->status === 'signed' ? 'signature-status-signed' : 'signature-status-' . $signature->status;
                         ?>
                             <li class="<?php echo esc_attr($status_class); ?>">
@@ -139,11 +141,21 @@ class ContentSigning_Admin_PostMetaBox {
                 </div>
             <?php endif; ?>
             
-            <?php if ($enable_signing && $has_author_profile && $post->post_status === 'publish') : ?>
+            <?php if ($enable_signing && $is_local_profile && $is_post_author && in_array($post->post_status, array('publish', 'future'), true)) : ?>
                 <p>
                     <button type="button" class="button sign-post" data-post-id="<?php echo esc_attr($post->ID); ?>"><?php _e('Sign Now', 'content-signing'); ?></button>
                     <span class="spinner" style="float: none; margin-top: 0;"></span>
                 </p>
+                <p class="description">
+                    <?php _e('The browser signs the exact filtered HTMLTrust payload with a local non-exportable key. The private key never goes to WordPress.', 'content-signing'); ?>
+                </p>
+                <p>
+                    <button type="button" class="button-link rotate-local-key" data-author-id="<?php echo esc_attr($post->post_author); ?>"><?php _e('Rotate local key', 'content-signing'); ?></button>
+                </p>
+            <?php elseif ($enable_signing && $is_local_profile && !$is_post_author && in_array($post->post_status, array('publish', 'future'), true)) : ?>
+                <p class="description"><?php _e('Only the post author can use browser-local signing for this post.', 'content-signing'); ?></p>
+            <?php elseif ($enable_signing && $has_author_profile && !$is_local_profile && in_array($post->post_status, array('publish', 'future'), true)) : ?>
+                <p class="description"><?php _e('This remote author profile cannot use browser-local signing.', 'content-signing'); ?></p>
             <?php endif; ?>
         </div>
         <?php
@@ -276,8 +288,18 @@ class ContentSigning_Admin_PostMetaBox {
                 'nonce' => wp_create_nonce('content_signing_post_' . $post_id),
                 'sign_post_confirm' => __('Are you sure you want to sign this post?', 'content-signing'),
                 'signing_text' => __('Signing...', 'content-signing'),
+                'sign_post_text' => __('Sign Now', 'content-signing'),
                 'verifying_text' => __('Verifying...', 'content-signing'),
+                'verify_text' => __('Verify', 'content-signing'),
+                'valid_text' => __('Valid', 'content-signing'),
+                'invalid_text' => __('Invalid', 'content-signing'),
                 'error_text' => __('Error:', 'content-signing'),
+                'ajax_error' => __('The request failed.', 'content-signing'),
+                'prepare_error' => __('Could not prepare the server-rendered payload.', 'content-signing'),
+                'local_signing_error' => __('Local signing failed:', 'content-signing'),
+                'rotate_confirm' => __('Rotate the local signing key? Existing signatures remain valid, but this browser will need the new key for future posts.', 'content-signing'),
+                'author_id' => $post ? (int) $post->post_author : 0,
+                'key_base_url' => trailingslashit(get_rest_url(null, 'htmltrust/v1/keys')),
             )
         );
     }

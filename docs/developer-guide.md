@@ -50,11 +50,13 @@ $servers = $db->get_servers();
 
 ### ContentSigning_API_Client
 
-Responsible for all communication with the external Content Signing API.
+Responsible for legacy API reads and verification. Content signing happens in
+the author's browser and the server-side signing method returns a disabled
+error.
 
 ```php
 $api_client = new ContentSigning_API_Client($api_url, $api_key, $db);
-$result = $api_client->sign_content($content_data, $author_api_key);
+$result = $api_client->verify_content($verification_data);
 ```
 
 ### ContentSigning_Signing_Service
@@ -63,7 +65,8 @@ Orchestrates the signing process, determining when to sign, preparing data, and 
 
 ```php
 $signing_service = new ContentSigning_Signing_Service($db, $api_client, $scheduler);
-$result = $signing_service->sign_post($post_id);
+$prepared = $signing_service->prepare_local_signing($post_id, $keyid);
+$result = $signing_service->complete_local_signing($post_id, $signed_payload);
 ```
 
 ### ContentSigning_Scheduler

@@ -5,6 +5,24 @@ All notable changes to the Content Signing for WordPress plugin will be document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-08-28
+
+### Added
+- Browser-local Ed25519 signing with non-extractable IndexedDB keys
+- Two-pass server-rendered payload preparation and PHP verification
+- Public local-key resolution through the WordPress REST API
+- Durable queue entries for scheduled and headless posts
+- Resolver-compatible SPKI public-key documents and rendered-byte drift checks
+- Browser-local author profiles with server ID 0, deterministic local identity,
+  and no API key requirement
+- One-time prepare tokens and immutable key ID to public key bindings
+
+### Changed
+- Publication hooks no longer call the remote trust-server signing endpoint
+- WebAuthn is documented as a separate artifact from HTMLTrust payload signatures.
+- Only the WordPress post author can prepare or complete browser-local signing.
+- Legacy server-side signing and endorsement execution are disabled.
+
 ## [1.0.0] - 2025-05-05
 
 ### Added

@@ -110,7 +110,7 @@ class ContentSigning_DB_TestCase extends ContentSigning_TestCase {
      */
     protected function create_test_author($data = array()) {
         // Create a server if none provided
-        if (empty($data['server_id'])) {
+        if (!array_key_exists('server_id', $data)) {
             $data['server_id'] = $this->create_test_server();
         }
         
@@ -145,7 +145,7 @@ class ContentSigning_DB_TestCase extends ContentSigning_TestCase {
         }
         
         // Create a server if none provided
-        if (empty($data['server_id'])) {
+        if (!array_key_exists('server_id', $data)) {
             $data['server_id'] = $this->create_test_server();
         }
         

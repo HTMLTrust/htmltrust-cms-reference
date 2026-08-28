@@ -241,7 +241,10 @@ class ContentSigning_API_Client {
      * @return   array|WP_Error            The API response or WP_Error on failure.
      */
     public function sign_content($content_data, $author_api_key) {
-        return $this->request('content/sign', 'POST', $content_data, $author_api_key, 'author');
+        return new WP_Error(
+            'remote_signing_disabled',
+            __('Server-side content signing is disabled. Use the browser-local signing flow.', 'content-signing')
+        );
     }
 
     /**
