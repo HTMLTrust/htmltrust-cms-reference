@@ -13,6 +13,10 @@ set -euo pipefail
 
 export TMPDIR="${TMPDIR:-/var/lib/wordpress-test-assets/tmp}"
 export WP_TESTS_DIR WP_CORE_DIR
+# A Git worktree stores .git as a pointer to the primary checkout, which is
+# outside this container mount. Supplying the root version keeps Composer from
+# following that host-only pointer while resolving the local root package.
+export COMPOSER_ROOT_VERSION="${COMPOSER_ROOT_VERSION:-dev-main}"
 
 mkdir -p "$TMPDIR"
 
