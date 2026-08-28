@@ -320,8 +320,8 @@ class ContentSigning_Signing_Service {
             }
         }
 
-        $public_key_bytes = $this->decode_base64url($public_key);
-        $signature_bytes = $this->decode_base64url($signature);
+        $public_key_bytes = $this->decode_canonical_base64($public_key);
+        $signature_bytes = $this->decode_canonical_base64($signature);
         if (false === $public_key_bytes || false === $signature_bytes || strlen($public_key_bytes) !== SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES || strlen($signature_bytes) !== SODIUM_CRYPTO_SIGN_BYTES) {
             return array('success' => false, 'message' => 'The public key or signature is malformed.');
         }
@@ -647,22 +647,28 @@ class ContentSigning_Signing_Service {
     }
 
     /**
-     * Decode unpadded base64url input strictly.
+     * Decode canonical unpadded standard Base64 strictly.
      *
-     * @param string $value Base64url value.
+     * @param string $value Base64 value.
      * @return string|false Decoded bytes.
      */
-    private function decode_base64url($value) {
-        if (!preg_match('/^[A-Za-z0-9_-]+$/', $value)) {
+    private function decode_canonical_base64($value) {
+        if ($value === '' || !preg_match('/^[A-Za-z0-9+\/]+$/', $value) || strlen($value) % 4 === 1) {
             return false;
         }
 
+        $encoded = $value;
         $padding = strlen($value) % 4;
         if ($padding) {
             $value .= str_repeat('=', 4 - $padding);
         }
 
-        return base64_decode(strtr($value, '-_', '+/'), true);
+        $decoded = base64_decode($value, true);
+        if ($decoded === false || rtrim(base64_encode($decoded), '=') !== $encoded) {
+            return false;
+        }
+
+        return $decoded;
     }
 
     /**
@@ -1198,7 +1204,7 @@ class ContentSigning_Signing_Service {
         // attributes. The persisted payload is diagnostic metadata only.
         $payload = $expected['payload'];
         $public_key = $this->decode_ed25519_spki_base64((string) $signature->public_key);
-        $signature_bytes = $this->decode_base64url((string) $signature->signature);
+        $signature_bytes = $this->decode_canonical_base64((string) $signature->signature);
 
         $valid = $public_key !== false && $signature_bytes !== false && strlen($public_key) === SODIUM_CRYPTO_SIGN_PUBLICKEYBYTES && strlen($signature_bytes) === SODIUM_CRYPTO_SIGN_BYTES && function_exists('sodium_crypto_sign_verify_detached') && sodium_crypto_sign_verify_detached($signature_bytes, $payload, $public_key);
 

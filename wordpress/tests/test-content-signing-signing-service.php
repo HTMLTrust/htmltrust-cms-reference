@@ -325,8 +325,8 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
         $result = $this->signing_service->complete_local_signing($post_id, array(
             'prepareToken' => $prepared['data']['prepareToken'],
             'keyid' => $keyid,
-            'publicKey' => $this->base64url($public_key),
-            'signature' => $this->base64url($signature),
+            'publicKey' => $this->canonical_base64($public_key),
+            'signature' => $this->canonical_base64($signature),
             'contentHash' => $prepared['data']['contentHash'],
             'claimsHash' => $prepared['data']['claimsHash'],
             'domain' => $prepared['data']['domain'],
@@ -368,8 +368,8 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
         $result = $this->signing_service->complete_local_signing($post_id, array(
             'prepareToken' => $prepared['data']['prepareToken'],
             'keyid' => $keyid,
-            'publicKey' => $this->base64url($public_key),
-            'signature' => $this->base64url($signature),
+            'publicKey' => $this->canonical_base64($public_key),
+            'signature' => $this->canonical_base64($signature),
             'contentHash' => $prepared['data']['contentHash'],
             'claimsHash' => $prepared['data']['claimsHash'],
             'domain' => $prepared['data']['domain'],
@@ -428,8 +428,8 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
         $result = $this->signing_service->complete_local_signing($post_id, array(
             'prepareToken' => $prepared['data']['prepareToken'],
             'keyid' => $keyid,
-            'publicKey' => $this->base64url($public_key),
-            'signature' => $this->base64url($signature),
+            'publicKey' => $this->canonical_base64($public_key),
+            'signature' => $this->canonical_base64($signature),
             'signedAt' => $prepared['data']['signedAt'],
             'payload' => $prepared['data']['payload'],
             'contentHash' => $prepared['data']['contentHash'],
@@ -466,8 +466,8 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
         $submission = array(
             'prepareToken' => $prepared['data']['prepareToken'],
             'keyid' => $keyid,
-            'publicKey' => $this->base64url($public_key),
-            'signature' => $this->base64url($signature),
+            'publicKey' => $this->canonical_base64($public_key),
+            'signature' => $this->canonical_base64($signature),
             'contentHash' => $prepared['data']['contentHash'],
             'claimsHash' => $prepared['data']['claimsHash'],
             'domain' => $prepared['data']['domain'],
@@ -682,7 +682,7 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
         $valid_pair = sodium_crypto_sign_keypair();
 
         $invalid = $this->local_submission($prepared['data'], $keyid, $unproven_pair);
-        $invalid['signature'] = $this->base64url(sodium_crypto_sign_detached(
+        $invalid['signature'] = $this->canonical_base64(sodium_crypto_sign_detached(
             $prepared['data']['payload'],
             sodium_crypto_sign_secretkey($valid_pair)
         ));
@@ -695,6 +695,17 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
             $this->local_submission($prepared['data'], $keyid, $valid_pair)
         );
         $this->assertTrue($accepted['success']);
+    }
+
+    /**
+     * Local signing accepts only the frozen v1 Base64 alphabet and padding.
+     */
+    public function test_local_signature_encoding_rejects_base64url_and_padding() {
+        $method = new ReflectionMethod($this->signing_service, 'decode_canonical_base64');
+
+        $this->assertSame("\xfb\xff", $method->invoke($this->signing_service, '+/8'));
+        $this->assertFalse($method->invoke($this->signing_service, '-_8'));
+        $this->assertFalse($method->invoke($this->signing_service, '+/8='));
     }
 
     /**
@@ -743,13 +754,13 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
     }
 
     /**
-     * Encode binary test data as unpadded base64url.
+     * Encode binary test data as unpadded standard Base64.
      *
      * @param string $bytes Binary data.
      * @return string Encoded value.
      */
-    private function base64url($bytes) {
-        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+    private function canonical_base64($bytes) {
+        return rtrim(base64_encode($bytes), '=');
     }
 
     private function local_submission($prepared, $keyid, $keypair) {
@@ -758,8 +769,8 @@ class Test_Content_Signing_Signing_Service extends ContentSigning_API_Client_Tes
         return array(
             'prepareToken' => $prepared['prepareToken'],
             'keyid' => $keyid,
-            'publicKey' => $this->base64url($public_key),
-            'signature' => $this->base64url($signature),
+            'publicKey' => $this->canonical_base64($public_key),
+            'signature' => $this->canonical_base64($signature),
             'contentHash' => $prepared['contentHash'],
             'claimsHash' => $prepared['claimsHash'],
             'domain' => $prepared['domain'],

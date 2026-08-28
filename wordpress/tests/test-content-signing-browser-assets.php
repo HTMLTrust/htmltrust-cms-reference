@@ -23,6 +23,6 @@ class Test_Content_Signing_Browser_Assets extends WP_UnitTestCase {
         $this->assertStringNotContainsString("importKey('pkcs8'", $script);
         $this->assertDoesNotMatchRegularExpression('/privateKey\s*:\s*stored/', $script);
         $this->assertStringContainsString('publicKey: publicKey', $script);
-        $this->assertStringContainsString('signature: toBase64Url', $script);
+        $this->assertStringContainsString('signature: toCanonicalBase64', $script);
     }
 }

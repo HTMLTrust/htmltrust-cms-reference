@@ -232,6 +232,10 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
     public function test_post_meta_box_integration() {
         // Verify the add_meta_boxes hook is registered
         $this->assertTrue(has_action('add_meta_boxes'));
+        $this->assertNotFalse(has_action(
+            'admin_enqueue_scripts',
+            array($this->plugin->get_admin(), 'enqueue_scripts')
+        ));
         
         // Create a post
         $post_id = $this->create_test_post();
@@ -388,8 +392,8 @@ class Test_Content_Signing_Integration extends ContentSigning_API_Client_TestCas
         $stored = $this->signing_service->complete_local_signing($post_id, array(
             'prepareToken' => $prepared['data']['prepareToken'],
             'keyid' => $keyid,
-            'publicKey' => rtrim(strtr(base64_encode($public_key), '+/', '-_'), '='),
-            'signature' => rtrim(strtr(base64_encode($signature), '+/', '-_'), '='),
+            'publicKey' => rtrim(base64_encode($public_key), '='),
+            'signature' => rtrim(base64_encode($signature), '='),
             'contentHash' => $prepared['data']['contentHash'],
             'claimsHash' => $prepared['data']['claimsHash'],
             'domain' => $prepared['data']['domain'],

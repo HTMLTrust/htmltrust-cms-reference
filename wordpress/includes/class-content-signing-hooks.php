@@ -107,6 +107,7 @@ class ContentSigning_Hooks {
         // Admin menu and settings
         add_action('admin_menu', array($this->admin, 'add_admin_menu'));
         add_action('admin_init', array($this->admin, 'register_settings'));
+        add_action('admin_enqueue_scripts', array($this->admin, 'enqueue_scripts'));
         
         // Meta boxes
         add_action('add_meta_boxes', array($this->admin, 'add_meta_boxes'));

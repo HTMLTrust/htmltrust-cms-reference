@@ -12,10 +12,10 @@
     const databaseName = 'htmltrust-local-signing';
     const storeName = 'keys';
 
-    function toBase64Url(bytes) {
+    function toCanonicalBase64(bytes) {
         let binary = '';
         bytes.forEach(function(byte) { binary += String.fromCharCode(byte); });
-        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        return btoa(binary).replace(/=+$/g, '');
     }
 
     function openKeyStore() {
@@ -67,7 +67,7 @@
 
     function exportPublicKey(key) {
         return crypto.subtle.exportKey('raw', key).then(function(buffer) {
-            return toBase64Url(new Uint8Array(buffer));
+            return toCanonicalBase64(new Uint8Array(buffer));
         });
     }
 
@@ -102,7 +102,7 @@
                     return exportPublicKey(stored.keyPair.publicKey).then(function(publicKey) {
                         return ajax({
                             action: 'content_signing_complete_local_signing', nonce: config.nonce, post_id: postId,
-                            prepareToken: prepared.prepareToken, keyid: stored.keyId, publicKey: publicKey, signature: toBase64Url(new Uint8Array(signature)),
+                            prepareToken: prepared.prepareToken, keyid: stored.keyId, publicKey: publicKey, signature: toCanonicalBase64(new Uint8Array(signature)),
                             contentHash: prepared.contentHash, claimsHash: prepared.claimsHash, domain: prepared.domain,
                             signedAt: prepared.signedAt, payload: prepared.payload, profile: prepared.profile,
                             algorithm: prepared.algorithm, scope: prepared.scope, location: prepared.location,

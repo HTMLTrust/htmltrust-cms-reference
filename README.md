@@ -129,7 +129,7 @@ this reference repository.
 The current checkout contains existing WordPress Coding Standards violations,
 so `--lint` reports a nonzero result after PHPUnit completes. Keeping that check
 explicit makes the default test command a reliable pass/fail signal for the
-current PHPUnit suite, which contains 80 tests in this checkout.
+current PHPUnit suite, which contains 81 tests in this checkout.
 
 ### Manual test setup
 
