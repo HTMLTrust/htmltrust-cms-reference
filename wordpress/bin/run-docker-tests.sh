@@ -22,8 +22,11 @@ mkdir -p "$TMPDIR"
 
 # The repository is mounted read-only and may belong to a different host UID.
 # Composer asks Git to trust the mounted checkout before inspecting its root.
-git config --global --add safe.directory /workspace
-git config --global --add safe.directory /workspace/wordpress
+(
+    cd /
+    git config --global --add safe.directory /workspace
+    git config --global --add safe.directory /workspace/wordpress
+)
 
 echo "Installing Composer dependencies from composer.lock..."
 composer install --no-interaction --prefer-dist --no-progress
