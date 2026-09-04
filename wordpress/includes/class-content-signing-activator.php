@@ -89,6 +89,9 @@ class ContentSigning_Activator {
             content_hash varchar(255) NOT NULL,
             domain varchar(255) NOT NULL,
             signature text NOT NULL,
+            keyid varchar(255) DEFAULT NULL,
+            public_key text,
+            signing_mode varchar(32) NOT NULL DEFAULT 'remote',
             claims_json text,
             status varchar(50) NOT NULL,
             api_response_json text,
@@ -97,7 +100,8 @@ class ContentSigning_Activator {
             PRIMARY KEY  (signature_id),
             KEY post_id (post_id),
             KEY server_id (server_id),
-            KEY wp_user_id (wp_user_id)
+            KEY wp_user_id (wp_user_id),
+            KEY local_keyid (keyid(191), signing_mode)
         ) $charset_collate;";
         
         // Include WordPress database upgrade functions

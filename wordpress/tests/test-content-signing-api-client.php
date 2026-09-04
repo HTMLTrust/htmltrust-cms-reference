@@ -75,9 +75,9 @@ class Test_Content_Signing_API_Client extends ContentSigning_API_Client_TestCase
     }
 
     /**
-     * Test sign_content method.
+     * Server-side signing is permanently disabled.
      */
-    public function test_sign_content() {
+    public function test_sign_content_is_disabled() {
         $content_data = array(
             'contentHash' => 'sha256:test-content-hash',
             'domain' => 'test.example.com',
@@ -90,13 +90,8 @@ class Test_Content_Signing_API_Client extends ContentSigning_API_Client_TestCase
         
         $result = $this->api_client->sign_content($content_data, $author_api_key);
         
-        $this->assertNotWPError($result);
-        $this->assertEquals($content_data['contentHash'], $result['contentHash']);
-        $this->assertEquals($content_data['domain'], $result['domain']);
-        $this->assertEquals('mock-author-id', $result['authorId']);
-        $this->assertEquals('mock-key-id', $result['keyId']);
-        $this->assertEquals('mock-signature', $result['signature']);
-        $this->assertEquals($content_data['claims'], $result['claims']);
+        $this->assertWPError($result);
+        $this->assertSame('remote_signing_disabled', $result->get_error_code());
     }
 
     /**

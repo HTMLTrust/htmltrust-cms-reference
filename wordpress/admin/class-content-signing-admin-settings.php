@@ -422,13 +422,8 @@ class ContentSigning_Admin_Settings {
      * @return   void
      */
     public function render_enable_endorsements_field() {
-        $enable_endorsements = get_option('content_signing_enable_endorsements', false);
         ?>
-        <label>
-            <input type="checkbox" name="content_signing_enable_endorsements" value="1" <?php checked($enable_endorsements); ?>>
-            <?php _e('Enable endorsements for this site', 'content-signing'); ?>
-        </label>
-        <p class="description"><?php _e('When enabled, content will be endorsed by the selected profiles below.', 'content-signing'); ?></p>
+        <p class="description"><?php _e('Server-side endorsement signing is disabled. Existing endorsement settings remain readable for migration records.', 'content-signing'); ?></p>
         <?php
     }
 
@@ -464,7 +459,7 @@ class ContentSigning_Admin_Settings {
                 </label><br>
             <?php endforeach; ?>
         </fieldset>
-        <p class="description"><?php _e('Select which endorser profiles should be used for site-wide endorsements.', 'content-signing'); ?></p>
+        <p class="description"><?php _e('Remote endorser profiles are shown for migration records. Browser-local profiles cannot be endorsers.', 'content-signing'); ?></p>
         <?php
     }
 
@@ -531,7 +526,7 @@ class ContentSigning_Admin_Settings {
             $profile_id = intval($profile_id);
             $profile = $this->db->get_author($profile_id);
             
-            if ($profile && $profile->is_site_endorser) {
+            if ($profile && $profile->is_site_endorser && (int) $profile->server_id > 0) {
                 $sanitized[] = $profile_id;
             }
         }

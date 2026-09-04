@@ -130,11 +130,57 @@ class ContentSigning_Public {
         // Register AJAX handlers
         add_action('wp_ajax_nopriv_content_signing_verify', array($this, 'ajax_verify_signature'));
         add_action('wp_ajax_content_signing_verify', array($this, 'ajax_verify_signature'));
+
+        // Local-browser key resolution is a public, read-only endpoint. It
+        // exposes only the public key needed by verifiers, never claims or
+        // private material.
+        add_action('rest_api_init', array($this, 'register_key_route'));
         
         // Register content filters
         if (get_option('content_signing_embed_signature', false)) {
-            add_filter('the_content', array($this->display, 'display_signature'), 20);
+            // Run after the normal content filters so the signed bytes are
+            // the same bytes visitors receive. A filter registered later at
+            // this exact priority remains outside this boundary.
+            add_filter('the_content', array($this->display, 'display_signature'), PHP_INT_MAX);
         }
+    }
+
+    /**
+     * Register the local key resolution endpoint.
+     *
+     * @return void
+     */
+    public function register_key_route() {
+        register_rest_route('htmltrust/v1', '/keys/(?P<keyid>[A-Za-z0-9._~-]+)', array(
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => array($this, 'resolve_local_key'),
+            'permission_callback' => '__return_true',
+        ));
+    }
+
+    /**
+     * Resolve a locally stored public key.
+     *
+     * @param WP_REST_Request $request REST request.
+     * @return WP_REST_Response|WP_Error Response.
+     */
+    public function resolve_local_key($request) {
+        $keyid = (string) $request['keyid'];
+        $base = trailingslashit(get_rest_url(null, 'htmltrust/v1/keys'));
+        $full_keyid = $base . rawurlencode($keyid);
+        $signature = $this->db->get_local_signature_by_keyid($full_keyid);
+        if (!$signature || empty($signature->public_key)) {
+            return new WP_Error('key_not_found', __('Public key not found.', 'content-signing'), array('status' => 404));
+        }
+
+        return rest_ensure_response(array(
+            'id' => $keyid,
+            'keyid' => $full_keyid,
+            'algorithm' => 'ed25519',
+            'publicKey' => $signature->public_key,
+            'publicKeyEncoding' => 'spki-der',
+            'type' => 'HUMAN',
+        ));
     }
 
     /**

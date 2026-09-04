@@ -36,6 +36,11 @@ class ContentSigning_API_Client_TestCase extends ContentSigning_DB_TestCase {
      */
     public function setUp(): void {
         parent::setUp();
+
+        // v1 signing locations require an HTTPS document URL. Keep the test
+        // site aligned with the production protocol profile.
+        update_option('siteurl', 'https://example.org');
+        update_option('home', 'https://example.org');
         
         // Create a mock API client
         $this->api_client = new ContentSigning_API_Client(

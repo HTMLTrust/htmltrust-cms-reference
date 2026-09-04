@@ -100,8 +100,10 @@ class ContentSigning_Scheduler {
         $plugin = ContentSigning_Plugin::get_instance();
         $signing_service = $plugin->get_signing_service();
         
-        // Sign the post
-        $signing_service->sign_post($post_id);
+        // Cron has no access to the author's browser key. Leave a durable
+        // queue entry for the next editor session instead of invoking the
+        // legacy remote signer.
+        $signing_service->queue_local_signature($post_id);
     }
 
     /**

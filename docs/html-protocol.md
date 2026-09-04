@@ -10,18 +10,23 @@ Signed content uses the `<signed-section>` custom HTML element, as defined in th
 
 ### Required Attributes
 
-Per spec §2.1, the wrapper element carries exactly four required attributes:
+Frozen v1 signatures carry the required identity, profile, scope, location,
+and cryptographic attributes below. Older producers may emit only the legacy
+four-attribute subset, but v1 producers and verifiers use the complete set.
 
 | Attribute | Description | Example |
 |---|---|---|
 | `keyid` | Identifies the signer; resolved per the rules in **Identity and Key Resolution** below. May be a DID, a direct URL to a public key document, or a trust-directory reference. | `keyid="did:web:author.example"` |
-| `signature` | Base64-encoded (unpadded) cryptographic signature over the canonical binding string defined in **Signature Data Format** | `signature="aBcDeF123..."` |
+| `signature` | Base64-encoded (unpadded) cryptographic signature over the canonical v1 payload defined in **Signature Data Format** | `signature="aBcDeF123..."` |
 | `content-hash` | Hash of the canonicalized content, prefixed with the hash algorithm and encoded as unpadded standard Base64 | `content-hash="sha256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"` |
 | `algorithm` | Signature algorithm. Required by the spec; implementations MAY default to `ed25519` when the attribute is omitted, but producers SHOULD always emit it explicitly. | `algorithm="ed25519"` |
+| `profile` | Frozen signing profile used to construct the signed v1 payload | `profile="htmltrust-signature-v1"` |
+| `signature-scope` | Scope value used in the signed payload | `signature-scope="url"` |
+| `location` | Scope-derived document location bound into the signed payload | `location="https://example.com/article"` |
 
-### Optional Attributes
+### Legacy attributes
 
-There are **no** optional attributes on the `<signed-section>` wrapper itself in this revision. All claim and contextual metadata (author name, signed-at timestamp, license, content type, AI assistance, etc.) belongs in inner `<meta>` elements as documented under **Inner Metadata** below. This keeps the wrapper's attribute surface narrow and easy to validate.
+Legacy producers may omit the v1 profile, scope, and location attributes. Frozen v1 producers include them. Claim and contextual metadata such as author name, signed-at timestamp, license, content type, and AI assistance belongs in inner `<meta>` elements as documented under **Inner Metadata** below.
 
 Presentational attributes such as `style` and `class` SHOULD NOT be set inline on `<signed-section>`. Styling is the user agent's responsibility (see the **CSS** section at the bottom of this document); inline presentational attributes mix concerns and are unnecessary for protocol conformance.
 
@@ -35,7 +40,7 @@ Presentational attributes such as `style` and `class` SHOULD NOT be set inline o
 
 ## Inner Metadata
 
-The `<signed-section>` element MAY contain `<meta>` tags that describe the signature's claims and context. This makes signatures self-describing — a crawler or verifier can read the claims directly from the HTML without calling the trust directory API.
+The `<signed-section>` element MAY contain `<meta>` tags that describe the signature's claims and context. This makes signatures self-describing. A crawler or verifier can read the claims directly from the HTML without calling the trust directory API.
 
 ### Standard Meta Names
 
@@ -65,6 +70,9 @@ The `<signed-section>` element wraps the signed content:
 <signed-section
     signature="BASE64_SIG"
     keyid="https://api.example.com/authors/123/public-key"
+    profile="htmltrust-signature-v1"
+    signature-scope="url"
+    location="https://example.com/article"
     algorithm="ed25519"
     content-hash="sha256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU">
   <meta name="author" content="Alice Example">
@@ -145,16 +153,21 @@ Future revisions MAY extend the signed attribute list. Verifiers for this revisi
 
 ## Signature Data Format
 
-The signature binds four values, concatenated with `:` separators:
+Frozen v1 signatures use an RFC 8785 JSON payload. The payload includes the
+profile, content hash, claims hash, document URL, scope-derived location,
+key identifier, algorithm, and exact signed-at timestamp. The canonical JSON
+UTF-8 bytes are signed directly.
+
+Legacy signatures bind four values, concatenated with `:` separators:
 
 ```
 {content-hash}:{claims-hash}:{domain}:{signed-at}
 ```
 
-- `content-hash` — hash of the canonicalized text content (see above)
-- `claims-hash` — SHA-256 hash of the canonical serialization of all inner `<meta>` claim elements, ordered lexically by name (ensures tamper-evident claim metadata)
-- `domain` — the serialized Web origin where the content is authoritatively published, using the legacy field name retained by the protocol
-- `signed-at` — the ISO-8601 timestamp from the `<meta name="signed-at">` element
+- `content-hash`: hash of the canonicalized text content (see above)
+- `claims-hash`: SHA-256 hash of the canonical serialization of all inner `<meta>` claim elements, ordered lexically by name (ensures tamper-evident claim metadata)
+- `domain`: the serialized Web origin where the content is authoritatively published, using the legacy field name retained by the protocol
+- `signed-at`: the ISO-8601 timestamp from the `<meta name="signed-at">` element
 
 For example:
 ```
@@ -179,8 +192,8 @@ A verifying client (browser extension, crawler, library) performs these steps **
 4. **Canonicalize** the inner text content per the rules above and compute its hash
 5. **Compare** the computed hash with the `content-hash` attribute (content integrity check)
 6. **Compute** the `claims-hash` from the canonical serialization of inner `<meta>` claim elements
-7. **Construct** the binding string `{content-hash}:{claims-hash}:{domain}:{signed-at}`
-8. **Verify** the cryptographic signature over the binding string using the resolved public key and the declared `algorithm`
+7. **Construct** the frozen v1 RFC 8785 payload from the profile, content hash, claims hash, document URL, scope, key ID, algorithm, and signed-at timestamp
+8. **Verify** the cryptographic signature over the exact UTF-8 payload bytes using the resolved public key and the declared `algorithm`
 
 This layer produces a deterministic yes/no result: either the signature is cryptographically valid or it is not. No server or directory is required for this step beyond whatever key resolution demands.
 

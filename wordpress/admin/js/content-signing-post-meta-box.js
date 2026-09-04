@@ -1,156 +1,153 @@
 /**
- * JavaScript for the post meta box functionality of the plugin.
+ * Browser-local signing for the post meta box.
  *
- * @package    Content_Signing
- * @subpackage Content_Signing/admin/js
+ * WordPress supplies the authoritative, filtered payload. This file creates
+ * an Ed25519 key in Web Crypto, stores the non-extractable private key in
+ * IndexedDB, and sends only the public key plus signature bytes back to PHP.
  */
-
 (function($) {
     'use strict';
 
-    /**
-     * Initialize the post meta box scripts.
-     */
-    function init() {
-        // Initialize sign post button
-        initSignPostButton();
+    const config = content_signing_post_meta_box;
+    const databaseName = 'htmltrust-local-signing';
+    const storeName = 'keys';
 
-        // Initialize verify signature button
-        initVerifySignatureButton();
+    function toCanonicalBase64(bytes) {
+        let binary = '';
+        bytes.forEach(function(byte) { binary += String.fromCharCode(byte); });
+        return btoa(binary).replace(/=+$/g, '');
     }
 
-    /**
-     * Initialize the sign post button.
-     */
-    function initSignPostButton() {
-        $('.content-signing-meta-box .sign-post').on('click', function(e) {
-            e.preventDefault();
-
-            const $button = $(this);
-            const $spinner = $button.siblings('.spinner');
-            const postId = $button.data('post-id');
-
-            // Confirm before signing
-            if (!confirm(content_signing_post_meta_box.sign_post_confirm)) {
+    function openKeyStore() {
+        return new Promise(function(resolve, reject) {
+            if (!window.indexedDB) {
+                reject(new Error('This browser does not provide IndexedDB.'));
                 return;
             }
+            const request = indexedDB.open(databaseName, 1);
+            request.onupgradeneeded = function() {
+                request.result.createObjectStore(storeName);
+            };
+            request.onsuccess = function() { resolve(request.result); };
+            request.onerror = function() { reject(request.error || new Error('Could not open local key storage.')); };
+        });
+    }
 
-            // Disable button and show spinner
-            $button.prop('disabled', true);
-            $button.text(content_signing_post_meta_box.signing_text);
-            $spinner.addClass('is-active');
-
-            // Send AJAX request
-            $.ajax({
-                url: content_signing_post_meta_box.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'content_signing_sign_post',
-                    nonce: content_signing_post_meta_box.nonce,
-                    post_id: postId
-                },
-                success: function(response) {
-                    if (response.success) {
-                        // Reload the page to show the updated signature
-                        location.reload();
-                    } else {
-                        // Show error message
-                        const errorMessage = response.data && response.data.message ? response.data.message : content_signing_post_meta_box.error_text;
-                        alert(content_signing_post_meta_box.error_text + ' ' + errorMessage);
-                        
-                        // Reset button
-                        $button.prop('disabled', false);
-                        $button.text(content_signing_post_meta_box.sign_post_text);
-                        $spinner.removeClass('is-active');
+    function loadStoredKey(authorId, rotate) {
+        return openKeyStore().then(function(db) {
+            return new Promise(function(resolve, reject) {
+                const transaction = db.transaction(storeName, 'readonly');
+                const store = transaction.objectStore(storeName);
+                const storageKey = 'author:' + authorId;
+                const request = store.get(storageKey);
+                request.onsuccess = function() {
+                    if (request.result && !rotate) {
+                        resolve(request.result);
+                        return;
                     }
-                },
-                error: function() {
-                    // Show error message
-                    alert(content_signing_post_meta_box.error_text + ' ' + content_signing_post_meta_box.ajax_error);
-                    
-                    // Reset button
-                    $button.prop('disabled', false);
-                    $button.text(content_signing_post_meta_box.sign_post_text);
-                    $spinner.removeClass('is-active');
-                }
+                    crypto.subtle.generateKey({name: 'Ed25519'}, false, ['sign', 'verify']).then(function(keyPair) {
+                        // The private key is non-extractable from generation.
+                        // Web Crypto keeps the public member exportable so it
+                        // can be published as a resolver document.
+                        return keyPair;
+                    }).then(function(keyPair) {
+                        const idPart = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+                        const keyId = config.key_base_url + authorId + '.' + idPart;
+                        const value = {keyId: keyId, keyPair: keyPair};
+                        const writeTransaction = db.transaction(storeName, 'readwrite');
+                        writeTransaction.objectStore(storeName).put(value, storageKey);
+                        writeTransaction.oncomplete = function() { resolve(value); };
+                        writeTransaction.onerror = function() { reject(writeTransaction.error || new Error('Could not store local key.')); };
+                    }).catch(reject);
+                };
+                request.onerror = function() { reject(request.error || new Error('Could not read local key.')); };
             });
         });
     }
 
-    /**
-     * Initialize the verify signature button.
-     */
-    function initVerifySignatureButton() {
-        $('.content-signing-meta-box .verify-signature').on('click', function(e) {
-            e.preventDefault();
+    function exportPublicKey(key) {
+        return crypto.subtle.exportKey('raw', key).then(function(buffer) {
+            return toCanonicalBase64(new Uint8Array(buffer));
+        });
+    }
 
+    function ajax(data) {
+        return new Promise(function(resolve, reject) {
+            $.ajax({
+                url: config.ajax_url,
+                type: 'POST',
+                data: data,
+                success: function(response) {
+                    if (response.success) {
+                        resolve(response.data && response.data.data ? response.data.data : response.data);
+                    } else {
+                        reject(new Error(response.data && response.data.message ? response.data.message : config.error_text));
+                    }
+                },
+                error: function() { reject(new Error(config.ajax_error || config.error_text)); }
+            });
+        });
+    }
+
+    function signPost($button) {
+        const postId = $button.data('post-id');
+        const $spinner = $button.siblings('.spinner');
+        $button.prop('disabled', true).text(config.signing_text);
+        $spinner.addClass('is-active');
+
+        loadStoredKey(config.author_id, false).then(function(stored) {
+            return ajax({action: 'content_signing_prepare_local_signing', nonce: config.nonce, post_id: postId, keyid: stored.keyId}).then(function(prepared) {
+                const payload = new TextEncoder().encode(prepared.payload);
+                return crypto.subtle.sign({name: 'Ed25519'}, stored.keyPair.privateKey, payload).then(function(signature) {
+                    return exportPublicKey(stored.keyPair.publicKey).then(function(publicKey) {
+                        return ajax({
+                            action: 'content_signing_complete_local_signing', nonce: config.nonce, post_id: postId,
+                            prepareToken: prepared.prepareToken, keyid: stored.keyId, publicKey: publicKey, signature: toCanonicalBase64(new Uint8Array(signature)),
+                            contentHash: prepared.contentHash, claimsHash: prepared.claimsHash, domain: prepared.domain,
+                            signedAt: prepared.signedAt, payload: prepared.payload, profile: prepared.profile,
+                            algorithm: prepared.algorithm, scope: prepared.scope, location: prepared.location,
+                            sourceURL: prepared.sourceURL
+                        });
+                    });
+                });
+            });
+        }).then(function() {
+            window.location.reload();
+        }).catch(function(error) {
+            alert(config.local_signing_error + ' ' + error.message);
+            $button.prop('disabled', false).text(config.sign_post_text);
+            $spinner.removeClass('is-active');
+        });
+    }
+
+    function init() {
+        $('.content-signing-meta-box .sign-post').on('click', function(event) {
+            event.preventDefault();
+            if (confirm(config.sign_post_confirm)) { signPost($(this)); }
+        });
+
+        $('.content-signing-meta-box .rotate-local-key').on('click', function(event) {
+            event.preventDefault();
+            if (!confirm(config.rotate_confirm)) { return; }
+            loadStoredKey($(this).data('author-id'), true).then(function() {
+                alert('Local signing key rotated.');
+            }).catch(function(error) { alert(config.local_signing_error + ' ' + error.message); });
+        });
+
+        $('.content-signing-meta-box .verify-signature').on('click', function(event) {
+            event.preventDefault();
             const $button = $(this);
             const $listItem = $button.closest('li');
-            const signatureId = $button.data('signature-id');
-            const postId = $button.data('post-id');
-
-            // Remove any existing verification result
-            $listItem.find('.verify-result').remove();
-
-            // Disable button and show text
-            $button.prop('disabled', true);
-            $button.text(content_signing_post_meta_box.verifying_text);
-
-            // Send AJAX request
-            $.ajax({
-                url: content_signing_post_meta_box.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'content_signing_verify_signature',
-                    nonce: content_signing_post_meta_box.nonce,
-                    signature_id: signatureId,
-                    post_id: postId
-                },
-                success: function(response) {
-                    // Reset button
-                    $button.prop('disabled', false);
-                    $button.text(content_signing_post_meta_box.verify_text);
-
-                    if (response.success) {
-                        // Show success message
-                        const resultClass = response.data.valid ? 'valid' : 'invalid';
-                        const resultText = response.data.valid ?
-                            content_signing_post_meta_box.valid_text :
-                            content_signing_post_meta_box.invalid_text;
-
-                        // Built with .text(): resultText is local, but the
-                        // branch below carries trust-server strings and both
-                        // paths must stay markup-free.
-                        const $result = $('<div>')
-                            .addClass('verify-result ' + resultClass)
-                            .text(resultText);
-                        $listItem.append($result);
-                    } else {
-                        // Show error message. response.data.message is relayed
-                        // verbatim from the trust server and is untrusted.
-                        const errorMessage = response.data && response.data.message ? response.data.message : content_signing_post_meta_box.error_text;
-                        const $result = $('<div>')
-                            .addClass('verify-result invalid')
-                            .text(content_signing_post_meta_box.error_text + ' ' + errorMessage);
-                        $listItem.append($result);
-                    }
-                },
-                error: function() {
-                    // Reset button
-                    $button.prop('disabled', false);
-                    $button.text(content_signing_post_meta_box.verify_text);
-
-                    // Show error message
-                    const $result = $('<div>')
-                        .addClass('verify-result invalid')
-                        .text(content_signing_post_meta_box.error_text + ' ' + content_signing_post_meta_box.ajax_error);
-                    $listItem.append($result);
-                }
+            $button.prop('disabled', true).text(config.verifying_text);
+            ajax({action: 'content_signing_verify_signature', nonce: config.nonce, signature_id: $button.data('signature-id'), post_id: $button.data('post-id')}).then(function(result) {
+                $listItem.append($('<div>').addClass('verify-result ' + (result.valid ? 'valid' : 'invalid')).text(result.valid ? config.valid_text : config.invalid_text));
+            }).catch(function(error) {
+                $listItem.append($('<div>').addClass('verify-result invalid').text(config.error_text + ' ' + error.message));
+            }).finally(function() {
+                $button.prop('disabled', false).text(config.verify_text);
             });
         });
     }
 
-    // Initialize when the DOM is ready
     $(document).ready(init);
-
-})(jQuery);
+}(jQuery));
